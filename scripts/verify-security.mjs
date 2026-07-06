@@ -71,6 +71,35 @@ const preloadDeclSrc = readFileSync(resolve(root, 'src/preload/index.d.ts'), 'ut
 check('Augments global Window interface', preloadDeclSrc.includes('interface Window'))
 check('Declares window.socratopia type', preloadDeclSrc.includes('socratopia:'))
 
+// ── Chat Stream IPC Security ────────────────────────────────────
+console.log('\nChat Stream IPC Security Checks (src/main/ipc/chat-stream.ts):')
+
+let streamIpcSrc
+try {
+  streamIpcSrc = readFileSync(resolve(root, 'src/main/ipc/chat-stream.ts'), 'utf-8')
+} catch {
+  streamIpcSrc = ''
+}
+
+if (streamIpcSrc.length > 0) {
+  check('Chat stream IPC validates input with Zod schema', streamIpcSrc.includes('.parse('), 'Zod validation required on IPC boundary')
+  check('Chat stream IPC does not expose readKey or getKey channel', !streamIpcSrc.includes("settings:get") && !streamIpcSrc.includes("settings:read"), 'API key must never leave main process')
+  check('Chat stream IPC has session cleanup on completion', streamIpcSrc.includes('sessions.delete'), 'sessions must be cleaned up to prevent memory leaks')
+} else {
+  check('Chat stream IPC file exists', false, 'src/main/ipc/chat-stream.ts not found')
+}
+
+// ── Preload Chat API Security ───────────────────────────────────
+console.log('\nPreload Chat API Checks (src/preload/index.ts):')
+check('Preload exposes startStream API', preloadSrc.includes('startStream'), 'chat API required')
+check('Preload exposes cancelStream API', preloadSrc.includes('cancelStream'), 'chat API required')
+check('Preload exposes onToken API', preloadSrc.includes('onToken'), 'chat API required')
+check('Preload exposes onError API', preloadSrc.includes('onError'), 'chat API required')
+check('Preload exposes onEnd API', preloadSrc.includes('onEnd'), 'chat API required')
+check('Preload exposes onUsage API', preloadSrc.includes('onUsage'), 'chat API required')
+check('Preload does NOT expose raw ipcRenderer.on for chat channels', !preloadSrc.includes("ipcRenderer.on('chat:"), 'renderer must not directly subscribe to IPC channels')
+check('Preload does NOT expose getKey or readKey in chat API', !preloadSrc.includes('readKey'), 'plaintext key must never be readable from renderer')
+
 // ── Summary ─────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(50)}`)
 console.log(`Results: ${passed} passed, ${failed} failed`)
