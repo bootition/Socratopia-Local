@@ -4,7 +4,7 @@ import { registerSettingsIpc } from './ipc/settings'
 import { registerChatStreamIpc } from './ipc/chat-stream'
 import { initDataDir } from './storage/initialize'
 import { resolveReferencePaths } from './storage/resolve-paths'
-import type { DeepSeekStreamChunk } from './llm/stream-types'
+import { createDeepSeekStreamAdapter } from './llm/deepseek-stream-adapter'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -60,13 +60,7 @@ app.whenReady().then(async () => {
       if (!win) throw new Error('No BrowserWindow available')
       return win.webContents
     },
-    async function* (_params): AsyncIterable<DeepSeekStreamChunk> {
-      throw new Error(
-        'Streaming adapter not yet implemented. ' +
-        'The IPC plumbing is functional; replace this placeholder ' +
-        'with a real DeepSeek streaming adapter.'
-      )
-    },
+    (params) => createDeepSeekStreamAdapter().streamChat(params),
     () => keyStore.readKey()
   )
 
