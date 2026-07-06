@@ -1,8 +1,10 @@
 import { app, BrowserWindow, ipcMain, shell, safeStorage } from 'electron'
 import { join } from 'path'
 import { registerSettingsIpc } from './ipc/settings'
+import { registerChatStreamIpc } from './ipc/chat-stream'
 import { initDataDir } from './storage/initialize'
 import { resolveReferencePaths } from './storage/resolve-paths'
+import type { DeepSeekStreamChunk } from './llm/stream-types'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -33,13 +35,6 @@ function createWindow(): void {
   }
 }
 
-function registerIpcHandlers(dataRoot: string): void {
-  ipcMain.handle('app:get-version', () => app.getVersion())
-  ipcMain.handle('app:get-platform', () => process.platform)
-
-  registerSettingsIpc(dataRoot, safeStorage)
-}
-
 app.whenReady().then(async () => {
   const dataRoot = join(app.getPath('userData'), 'Socratopia-Local')
   const { candidatesDir, worldPresetPath } = resolveReferencePaths(app.getAppPath())
@@ -51,8 +46,29 @@ app.whenReady().then(async () => {
     worldPresetPath
   })
 
-  registerIpcHandlers(dataRoot)
+  // Register IPC handlers that don't need the window
+  ipcMain.handle('app:get-version', () => app.getVersion())
+  ipcMain.handle('app:get-platform', () => process.platform)
+  const keyStore = registerSettingsIpc(dataRoot, safeStorage)
+
   createWindow()
+
+  // Register chat streaming IPC (needs window reference + key store)
+  registerChatStreamIpc(
+    () => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (!win) throw new Error('No BrowserWindow available')
+      return win.webContents
+    },
+    async function* (_params): AsyncIterable<DeepSeekStreamChunk> {
+      throw new Error(
+        'Streaming adapter not yet implemented. ' +
+        'The IPC plumbing is functional; replace this placeholder ' +
+        'with a real DeepSeek streaming adapter.'
+      )
+    },
+    () => keyStore.readKey()
+  )
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
