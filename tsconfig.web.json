@@ -22,6 +22,7 @@
     "src/renderer/src/**/*.tsx",
     "src/renderer/src/**/*.d.ts",
     "src/preload/index.d.ts",
-    "src/shared/channel-names.ts"
+    "src/shared/channel-names.ts",
+    "src/shared/chat-stream-controller.ts"
   ]
 }
