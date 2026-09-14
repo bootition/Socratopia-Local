@@ -144,9 +144,10 @@ describe('NotesPanel', () => {
     expect(await screen.findByText('改成我的理解')).toBeInTheDocument()
   })
 
-  it('deletes a note', async () => {
+  it('deletes a note after confirmation', async () => {
     const user = userEvent.setup()
     const { remove } = installBridge()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<NotesPanel />)
 
     await user.click(await screen.findByRole('button', { name: '删除' }))
@@ -155,6 +156,21 @@ describe('NotesPanel', () => {
       expect(remove).toHaveBeenCalledWith('note_1')
     })
     expect(await screen.findByText(/还没有笔记/)).toBeInTheDocument()
+    confirmSpy.mockRestore()
+  })
+
+  it('keeps the note when the delete confirmation is dismissed', async () => {
+    const user = userEvent.setup()
+    const { remove } = installBridge()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<NotesPanel />)
+
+    await user.click(await screen.findByRole('button', { name: '删除' }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(remove).not.toHaveBeenCalled()
+    expect(screen.queryByText(/还没有笔记/)).not.toBeInTheDocument()
+    confirmSpy.mockRestore()
   })
 
   it('shows an empty state when there are no notes', async () => {

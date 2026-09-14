@@ -35,7 +35,11 @@ const STREAM_ERROR_CODE = 'STREAM_ERROR'
 const ABORTED_ERROR_CODE = 'ABORTED'
 
 /** Default inactivity timeout in milliseconds (5 minutes without data) */
-const DEFAULT_MAX_TOTAL_MS = 15 * 60 * 1000
+// No hard total cap by default: a long thinking-mode reply can stream
+// for a long time, and the inactivity window above is the real guard
+// against a dead connection. Deployments that need a ceiling can pass
+// maxTotalMs explicitly.
+const DEFAULT_MAX_TOTAL_MS = Number.POSITIVE_INFINITY
 
 /** Scrub anything key-shaped or control-character-ish out of provider error messages. */
 function scrubControlChars(value: string): string {

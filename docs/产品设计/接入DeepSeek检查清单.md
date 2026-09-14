@@ -13,12 +13,12 @@
 |---|---|---|
 | Key 存储 | ✅ | Windows DPAPI（`safeStorage`）加密写入 `config/deepseek-key.enc`，渲染器只能拿到 `hasKey: boolean` |
 | 请求字段核对 | ✅ | 对照官方 API 文档：`model` = `deepseek-v4-pro` / `deepseek-v4-flash`；`stream: true` + `stream_options.include_usage: true`；`thinking: { type: 'enabled' \| 'disabled' }`；`reasoning_effort` 为 `low/high/max`（关闭走在 `thinking.disabled`）。与参考实现（Socratopia v2.1.1 server bundle）一致 |
-| 流式超时 | ✅ | 已从「总时长 5 分钟」改为「**空闲 5 分钟**」：只要还在出 token 就不会被腰斩，thinking/max 长回复安全 |
+- 只要还在出 token，就不会被腰斩（已移除 15 分钟总时长上限，只保留「5 分钟无任何新内容」的空闲超时）。
 | 非流式超时 | ✅ | 课后产物的非流式调用有 120 秒上限，不会永久转圈 |
 | 连接测试 | ✅ | 首启页新增「测试连接（不保存）」：用未保存的 Key 发一条 `max_tokens=16` 的极小请求；设置页也可用已保存 Key 测试 |
 | 错误可读性 | ✅ | 401 → 提示重新填 Key；402 → 余额不足；429 → 限流稍后重试；网络失败 → 中文说明；原始服务端消息作为次要详情保留 |
 | 用量统计 | ✅ | 每次流式回复的 usage 落 `config/usage.jsonl`，Stats 页显示 token 与（填单价后）估算费用 |
-| 质量门禁 | ✅ | typecheck、**824 单测**、安全基线 38 项、build、打包冒烟全部通过；`npm audit` 0 漏洞 |
+| 质量门禁 | ✅ | typecheck、**569 单测 / 54 文件**、安全基线 38 项、build、打包自检 7/7、真实安装 e2e 全部通过；`npm audit` 0 漏洞 |
 
 **结论：可以接 Key 了。** 唯一无法在离线环境验证的是真实网络下的端到端请求（下面第三步就是用它做验证）。
 
@@ -68,15 +68,15 @@
 ## 五、当前已知限制（不影响接 Key）
 
 - 不支持 OCR（扫描版 PDF）、语音朗读/回放、云同步、书城/社区（与既定范围一致）。
-- `pages.json` 目前只写不读（为将来页码导航预留）。
+- `pages.json` 已在下课时由 `getTextbookPage` 读取并写回 `textbook.json` 的 `progress`（Progress 页/教材库/PDF 阅读窗口都读它）。
 - DOCX 解压总量只受 100MB 输入上限约束，异常超大压缩比文档仍可能占用较多内存。
-- 打包版未做应用图标与签名（本地自用无影响）。
+- 打包版已配置应用图标（`build/icon.png`），但**未做代码签名**：Windows 可能提示「未知发布者」，点「更多信息 → 仍要运行」即可；卸载保留用户数据。
 
 ---
 
 ## 六、本次验证记录
 
-- `npm test`：**824 用例 / 55 文件全过**
+- `npm test`：**569 用例 / 54 文件全过**（项目从会话记录恢复后的套件；原始 843 用例中的部分文件未被转录完整捕获，已按模块重建）
 - `npm run typecheck`、`npm run build`：通过
 - `npm run test:security`：38 项通过
 - `npm audit`：0 漏洞

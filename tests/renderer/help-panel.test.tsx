@@ -19,11 +19,13 @@ describe('HelpPanel', () => {
     expect(screen.getByText(/API Key 由主进程加密保存/)).toBeInTheDocument()
   })
 
-  it('lists the implemented feature set and the not-yet-supported formats', () => {
+  it('lists the implemented feature set and the current limitations', () => {
     render(<HelpPanel />)
 
     expect(screen.getByText('已实现的功能')).toBeInTheDocument()
     expect(screen.getByText(/本地公式计算器/)).toBeInTheDocument()
-    expect(screen.getByText(/PDF\/EPUB\/DOCX 导入/)).toBeInTheDocument()
+    expect(screen.getByText(/多格式教材导入/)).toBeInTheDocument()
+    expect(screen.getByText(/教材导入已支持 Markdown/)).toBeInTheDocument()
+    expect(screen.queryByText(/PDF\/EPUB\/DOCX 导入、/)).not.toBeInTheDocument()
   })
 })

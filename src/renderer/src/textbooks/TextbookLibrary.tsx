@@ -135,9 +135,16 @@ export function TextbookLibrary({ refreshToken = 0 }: TextbookLibraryProps = {})
       )}
 
       {!loading && error === null && textbooks.length === 0 && (
-        <p className="text-sm text-[var(--muted-foreground)]">
-          还没有教材，用下面的导入功能粘贴或上传一份。
-        </p>
+        <div className="text-sm text-[var(--muted-foreground)]">
+          <p>还没有教材，用下面的导入功能粘贴或上传一份（Markdown / 文本 / PDF / EPUB / Word）。</p>
+          <button
+            type="button"
+            onClick={() => reload()}
+            className="mt-2 rounded-md border border-[var(--border)] px-3 py-1.5 text-xs hover:bg-[var(--muted)]"
+          >
+            重试读取
+          </button>
+        </div>
       )}
 
       <ul className="space-y-2">

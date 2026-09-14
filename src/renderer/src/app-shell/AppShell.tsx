@@ -175,7 +175,10 @@ export function AppShell({ children }: AppShellProps): React.ReactElement {
         return (
           <div className="flex h-full flex-col overflow-y-auto">
             <TextbookLibrary refreshToken={libraryVersion} />
-            <TextbookImporter onImported={() => setLibraryVersion((v) => v + 1)} />
+            <TextbookImporter
+              onImported={() => setLibraryVersion((v) => v + 1)}
+              onGoToClassroom={() => setActive('classroom')}
+            />
           </div>
         )
       case 'history':

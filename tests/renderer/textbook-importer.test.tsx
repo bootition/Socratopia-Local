@@ -136,14 +136,14 @@ describe('TextbookImporter', () => {
     const user = userEvent.setup()
     renderImporter()
 
-    await user.click(screen.getByRole('button', { name: /save textbook/i }))
+    await user.click(screen.getByRole('button', { name: /保存教材/ }))
 
     const alertText = screen
       .getAllByRole('alert')
       .map((node) => node.textContent ?? '')
       .join(' | ')
-    expect(alertText).toMatch(/title is required/i)
-    expect(alertText).toMatch(/content is required/i)
+    expect(alertText).toMatch(/请填写教材标题/)
+    expect(alertText).toMatch(/内容不能为空/)
     expect(createFromTextMock).not.toHaveBeenCalled()
   })
 
@@ -152,7 +152,7 @@ describe('TextbookImporter', () => {
     renderImporter()
 
     await fillPastedTextbook(user, 'Intro to Logic', '# Lesson 1\n\nLogic is fun.')
-    await user.click(screen.getByRole('button', { name: /save textbook/i }))
+    await user.click(screen.getByRole('button', { name: /保存教材/ }))
 
     await waitFor(() => expect(createFromTextMock).toHaveBeenCalledTimes(1))
     expect(createFromTextMock).toHaveBeenCalledWith({
@@ -176,7 +176,7 @@ describe('TextbookImporter', () => {
     // Title is derived from the file name when the user has not typed one.
     expect(screen.getByLabelText(/textbook title/i)).toHaveValue('Notes')
 
-    await user.click(screen.getByRole('button', { name: /save textbook/i }))
+    await user.click(screen.getByRole('button', { name: /保存教材/ }))
 
     await waitFor(() => expect(createFromTextMock).toHaveBeenCalledTimes(1))
     // Exact object match also proves no local filesystem path is sent to main.
@@ -196,7 +196,7 @@ describe('TextbookImporter', () => {
     const file = new File(['%PDF-1.4'], 'chapter.pdf', { type: 'application/pdf' })
     await user.upload(screen.getByLabelText(/upload/i), file)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/unsupported file type/i)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/不支持的文件类型/)
     expect(screen.getByLabelText(/^content$/i)).toHaveValue('')
     expect(createFromTextMock).not.toHaveBeenCalled()
   })
@@ -215,7 +215,7 @@ describe('TextbookImporter', () => {
     renderImporter()
 
     await fillPastedTextbook(user)
-    await user.click(screen.getByRole('button', { name: /save textbook/i }))
+    await user.click(screen.getByRole('button', { name: /保存教材/ }))
 
     await waitFor(() =>
       expect(screen.getByTestId('selected-textbook-id')).toHaveTextContent('tb-1')
@@ -229,14 +229,14 @@ describe('TextbookImporter', () => {
     renderImporter()
 
     await fillPastedTextbook(user)
-    await user.click(screen.getByRole('button', { name: /save textbook/i }))
+    await user.click(screen.getByRole('button', { name: /保存教材/ }))
     await screen.findByRole('heading', { name: 'Intro to Logic' })
 
-    await user.click(screen.getByRole('button', { name: /import another textbook/i }))
+    await user.click(screen.getByRole('button', { name: /再导入一本/ }))
 
     expect(screen.getByLabelText(/textbook title/i)).toHaveValue('')
     expect(screen.getByLabelText(/^content$/i)).toHaveValue('')
-    expect(screen.getByRole('button', { name: /save textbook/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /保存教材/ })).toBeInTheDocument()
   })
 
   it('shows the save error and keeps the form when the API rejects', async () => {
@@ -245,11 +245,11 @@ describe('TextbookImporter', () => {
     renderImporter()
 
     await fillPastedTextbook(user)
-    await user.click(screen.getByRole('button', { name: /save textbook/i }))
+    await user.click(screen.getByRole('button', { name: /保存教材/ }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/disk full/i)
     expect(screen.getByTestId('selected-textbook-id')).toHaveTextContent('none')
-    expect(screen.getByRole('button', { name: /save textbook/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /保存教材/ })).toBeInTheDocument()
   })
 })
 
@@ -281,7 +281,7 @@ describe('TextbookImporter — native file import', () => {
     await waitFor(() => {
       expect(importFileMock).toHaveBeenCalled()
     })
-    expect(screen.getByRole('button', { name: 'Save textbook' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存教材' })).toBeInTheDocument()
   })
 
   it('shows an error when parsing fails', async () => {
@@ -294,7 +294,7 @@ describe('TextbookImporter — native file import', () => {
     )
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Could not import that file'
+      'PDF 中没有可提取的文字'
     )
     expect(screen.getByRole('alert')).toHaveTextContent('PDF 中没有可提取的文字')
   })

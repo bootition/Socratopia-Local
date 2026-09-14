@@ -13,6 +13,8 @@ const SHORTCUTS: Array<[string, string]> = [
   ['Ctrl/Cmd + 5', '历史课堂'],
   ['Ctrl/Cmd + 6', '课堂笔记'],
   ['Ctrl/Cmd + 7', '用量与费用'],
+  ['Ctrl/Cmd + 8', '学习进度'],
+  ['Ctrl/Cmd + 9', '帮助'],
   ['Ctrl/Cmd + K', '跳到历史搜索'],
   ['Enter', '发送消息（可在设置里改为换行）'],
   ['Shift + Enter', '输入换行'],
@@ -20,8 +22,10 @@ const SHORTCUTS: Array<[string, string]> = [
 ]
 
 const WORKFLOW: string[] = [
-  '在「Companion」里选一位同伴。',
-  '在「Textbook」里粘贴 Markdown/纯文本，或上传 .md / .txt 文件。',
+  '安装与启动：双击安装包完成安装，桌面会出现 Socratopia-Local 图标；便携版解压或双击即可运行（都无需管理员权限）。',
+  '首次启动：粘贴 DeepSeek API Key → 点「测试连接」确认可用 → 保存进入课堂。',
+  '在「Companion」里选一位同伴，也可以新建自定义角色。',
+  '在「Textbook」里导入教材：Markdown / 纯文本 / PDF / EPUB / Word，也可以直接粘贴 Markdown 或纯文本。',
   '回到「Classroom」提问；同伴会用苏格拉底式追问陪你往下想。',
   '对话中可划词「引用 / 解释 / 翻译 / 追问」，可在消息旁「记笔记」。',
   '点「下课」确认后，会生成总结、闪卡、日记、进度和接力内容；失败的部分可以单独重试。',
@@ -30,8 +34,9 @@ const WORKFLOW: string[] = [
 
 const FEATURES: string[] = [
   'API Key 连接测试（填入后先验证 Key / 网络 / 模型）',
-  '角色化 AI 课堂，9 个内置角色',
-  'Markdown / 纯文本教材导入，段落级教材引用可核对原文',
+  '角色化 AI 课堂，9 个内置角色 + 自定义角色',
+  '多格式教材导入：Markdown / 纯文本 / PDF / EPUB / Word，段落级引用可核对原文',
+  '学习进度页：教材进度、完成课堂、累计 token，一键继续学习',
   '流式回复、Markdown/KaTeX/代码渲染、失败重试不丢消息',
   '课堂笔记与四色高亮、划词工具条、消息可编辑',
   '课后产物：总结 / 闪卡 / 日记 / 进度 / 接力；闪卡可编辑并导出 Markdown、Anki TSV',
@@ -42,7 +47,27 @@ const FEATURES: string[] = [
   '偏好设置：模型、思考深度、教学节奏、旁白开关、主题与字号、回车键位'
 ]
 
+import { useEffect, useState } from 'react'
+
 export function HelpPanel(): React.ReactElement {
+  const [version, setVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    const pending = window.socratopia?.getVersion()
+    if (pending === undefined) return
+    void pending
+      .then((value) => {
+        if (active) setVersion(value)
+      })
+      .catch(() => {
+        if (active) setVersion(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
   return (
     <section aria-label="帮助" className="mx-auto w-full max-w-3xl space-y-6 p-6">
       <div>
@@ -97,10 +122,15 @@ export function HelpPanel(): React.ReactElement {
       <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">
         <h3 className="text-sm font-semibold text-[var(--foreground)]">暂不支持</h3>
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">
-          PDF/EPUB/DOCX 导入、语音朗读、云同步、社区与商城。上游对应功能见
+          扫描版 PDF（OCR）、语音朗读、云同步、社区与商城。教材导入已支持 Markdown /
+          纯文本 / PDF（文字版）/ EPUB / Word，上游对应功能见
           `docs/产品设计/上游功能审查与建议.md` 的排除清单。
         </p>
       </div>
+
+      <p className="text-xs text-[var(--muted-foreground)]">
+        Socratopia-Local{version !== null ? ` v${version}` : ''} · 数据目录：%APPDATA%\Socratopia-Local\Socratopia-Local
+      </p>
     </section>
   )
 }

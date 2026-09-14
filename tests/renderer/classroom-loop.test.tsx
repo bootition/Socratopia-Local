@@ -239,7 +239,7 @@ describe('classroom loop', () => {
       screen.getByLabelText('Content'),
       '# 第一章 惯性\n\n物体保持静止或匀速直线运动。'
     )
-    await user.click(screen.getByRole('button', { name: 'Save textbook' }))
+    await user.click(screen.getByRole('button', { name: '保存教材' }))
 
     await waitFor(() => {
       expect(bridge.calls).toContain('textbook:create')

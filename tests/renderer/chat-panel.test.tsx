@@ -219,6 +219,36 @@ async function waitForStreamSetup(bridge: FakeBridge): Promise<void> {
 // Tests
 // ---------------------------------------------------------------
 
+describe('ChatPanel — stopping a reply', () => {
+  it('keeps the partial reply with a marker and offers regenerate', async () => {
+    const user = userEvent.setup()
+    const bridge = installBridge()
+    renderPanel({ companionId: 'comp_alice', textbookId: null })
+
+    await user.type(screen.getByLabelText('Message'), '什么是惯性？{Enter}')
+    await waitForStreamSetup(bridge)
+
+    act(() => {
+      bridge.tokenCb!('惯性是物体保持原有运动状态的性质。')
+    })
+    await waitFor(() => {
+      expect(
+        screen.getByText(/惯性是物体保持原有运动状态的性质/)
+      ).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: '停止' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('已停止生成')
+    })
+    expect(screen.getByRole('button', { name: '重新生成' })).toBeInTheDocument()
+    expect(
+      bridge.appended.some((m) => m.content.includes('（已停止生成，内容未完成）'))
+    ).toBe(true)
+  })
+})
+
 describe('ChatPanel', () => {
   it('creates the conversation and persists the user message before streaming', async () => {
     const user = userEvent.setup()

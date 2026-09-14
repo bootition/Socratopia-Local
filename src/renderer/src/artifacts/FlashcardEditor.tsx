@@ -6,6 +6,7 @@ import {
   flashcardsToMarkdown,
   flashcardsToTsv
 } from './flashcard-export'
+import { toUserMessage } from '../lib/user-message'
 
 export interface FlashcardEditorProps {
   flashcards: Flashcard[]
@@ -84,7 +85,11 @@ export function FlashcardEditor({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => downloadTextFile(exportFileName(title, 'md'), flashcardsToMarkdown(title, cards), 'text/markdown')}
+            onClick={() => {
+              const name = exportFileName(title, 'md')
+              downloadTextFile(name, flashcardsToMarkdown(title, cards), 'text/markdown')
+              setStatus(`已导出到浏览器下载目录：${name}`)
+            }}
             disabled={cards.length === 0}
             className="rounded border border-[var(--border)] px-2 py-0.5 text-xs hover:bg-[var(--muted)] disabled:opacity-50"
           >
@@ -92,7 +97,11 @@ export function FlashcardEditor({
           </button>
           <button
             type="button"
-            onClick={() => downloadTextFile(exportFileName(title, 'txt'), flashcardsToTsv(cards))}
+            onClick={() => {
+              const name = exportFileName(title, 'txt')
+              downloadTextFile(name, flashcardsToTsv(cards))
+              setStatus(`已导出到浏览器下载目录：${name}`)
+            }}
             disabled={cards.length === 0}
             className="rounded border border-[var(--border)] px-2 py-0.5 text-xs hover:bg-[var(--muted)] disabled:opacity-50"
           >

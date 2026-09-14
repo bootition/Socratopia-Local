@@ -8,6 +8,7 @@ import {
   type ReactNode
 } from 'react'
 import type { DeepSeekKeyTestResult } from '../../../shared/schemas/settings'
+import { toUserMessage } from '../lib/user-message'
 
 // ---------------------------------------------------------------
 // Settings context — exposes key state to the shell once ready
@@ -99,7 +100,7 @@ export function SettingsGate({ children }: SettingsGateProps): React.ReactElemen
         setKeyInput('')
         setStatus('configured')
       } catch (err) {
-        setError(err instanceof Error ? err.message : '保存 API Key 失败')
+        setError(toUserMessage(err, '保存 API Key 失败'))
       } finally {
         setSaving(false)
       }
@@ -123,7 +124,7 @@ export function SettingsGate({ children }: SettingsGateProps): React.ReactElemen
     } catch (err: unknown) {
       setTestResult({
         ok: false,
-        message: err instanceof Error ? err.message : '测试连接失败'
+        message: toUserMessage(err, '测试连接失败')
       })
     } finally {
       setTesting(false)
@@ -162,6 +163,21 @@ export function SettingsGate({ children }: SettingsGateProps): React.ReactElemen
             Socratopia-Local 使用你自己的 DeepSeek API Key，费用由你的账户承担。
             Key 只会加密保存在本机，不会发送到任何第三方服务。
           </p>
+
+          <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs leading-5 text-[var(--muted-foreground)]">
+            <li>到 DeepSeek 开放平台创建一个 API Key（下方链接）。</li>
+            <li>粘贴到下面，先点「测试连接（不保存）」确认 Key / 网络 / 模型可用。</li>
+            <li>保存后导入教材（Markdown / 文本 / PDF / EPUB / Word），选同伴开始上课。</li>
+          </ol>
+
+          <a
+            href="https://platform.deepseek.com/api_keys"
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 inline-block text-xs text-[var(--primary)] underline underline-offset-2"
+          >
+            还没有 Key？前往 DeepSeek 开放平台创建 →
+          </a>
 
           <label
             htmlFor="deepseek-api-key"

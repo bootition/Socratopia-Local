@@ -16,7 +16,11 @@ import {
 import { ARTIFACTS_END_CLASS, ARTIFACTS_GET } from '../../shared/channel-names'
 import type { AppPreferences } from '../../shared/schemas/preferences'
 import { readCompanionIndex } from './companions'
-import { getTextbook } from '../textbooks/textbook-store'
+import {
+  getTextbook,
+  parseCurrentPage,
+  updateTextbookProgress
+} from '../textbooks/textbook-store'
 import { listMessages } from '../conversations/message-store'
 import { endConversation } from '../conversations/conversation-store'
 import type { ArtifactStore } from '../artifacts/artifact-store'
@@ -59,7 +63,7 @@ export function registerArtifactIpc(options: RegisterArtifactIpcOptions): void {
       const companions = await readCompanionIndex(companionDir)
       const companion = companions.find((c) => c.id === parsed.companionId)
       if (companion === undefined) {
-        throw new Error('Companion not found')
+        throw new Error('这位同伴已被删除，无法生成课后产物。')
       }
 
       // A deleted textbook must not make it impossible to finish the
@@ -81,7 +85,7 @@ export function registerArtifactIpc(options: RegisterArtifactIpcOptions): void {
 
       const preferences = await readPreferences()
 
-      return generator.generate({
+      const result = await generator.generate({
         conversationId: parsed.conversationId,
         companion,
         textbook,
@@ -89,6 +93,26 @@ export function registerArtifactIpc(options: RegisterArtifactIpcOptions): void {
         model: preferences.model,
         only: parsed.only
       })
+
+      // Commit the lesson's progress to the textbook only now that the
+      // end-class run succeeded (F03: flipping pages during a lesson is
+      // not a commitment; finishing the lesson is). Clamp the model's
+      // page to the known total so the progress bar stays valid.
+      if (textbook !== null && result.record.progress !== null) {
+        const parsedPage = parseCurrentPage(result.record.progress)
+        const totalPages = textbook.progress.totalPages
+        const currentPage =
+          parsedPage !== null && totalPages !== null && totalPages > 0
+            ? Math.min(parsedPage, totalPages)
+            : parsedPage
+
+        await updateTextbookProgress(textbookDir, textbook.id, {
+          ...(currentPage !== null ? { currentPage } : {}),
+          progressMarkdown: result.record.progress
+        })
+      }
+
+      return result
     }
   )
 

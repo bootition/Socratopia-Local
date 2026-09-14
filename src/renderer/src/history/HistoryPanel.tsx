@@ -7,6 +7,7 @@ import {
 } from '../../../shared/schemas/artifact'
 import type { ArtifactType } from '../../../shared/types/ids'
 import { EndClassResultView } from '../artifacts/EndClassButton'
+import { toUserMessage } from '../lib/user-message'
 import { downloadTextFile } from '../artifacts/flashcard-export'
 import {
   buildTranscriptMarkdown,
@@ -63,6 +64,7 @@ export function HistoryPanel({
   const [artifacts, setArtifacts] = useState<Record<string, EndClassRecord | null>>({})
   const [artifactsError, setArtifactsError] = useState<string | null>(null)
   const [exportingId, setExportingId] = useState<string | null>(null)
+  const [exportNotice, setExportNotice] = useState<string | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
   const [artifactBusyId, setArtifactBusyId] = useState<string | null>(null)
 
@@ -77,7 +79,7 @@ export function HistoryPanel({
       const record = await window.socratopia.artifacts.get(conversationId)
       setArtifacts((prev) => ({ ...prev, [conversationId]: record }))
     } catch (err: unknown) {
-      setArtifactsError(err instanceof Error ? err.message : '无法读取课后产物')
+      setArtifactsError(toUserMessage(err, '无法读取课后产物'))
     }
   }, [openArtifactId])
 
@@ -130,13 +132,12 @@ export function HistoryPanel({
           notes,
           artifacts
         })
-        downloadTextFile(
-          transcriptFileName(conversation.title),
-          markdown,
-          'text/markdown'
-        )
+        const fileName = transcriptFileName(conversation.title)
+        downloadTextFile(fileName, markdown, 'text/markdown')
+        setExportError(null)
+        setExportNotice(`已导出到浏览器下载目录：${fileName}`)
       } catch (err: unknown) {
-        setExportError(err instanceof Error ? err.message : '导出课堂失败')
+        setExportError(toUserMessage(err, '导出课堂失败'))
       } finally {
         setExportingId(null)
       }
@@ -149,15 +150,20 @@ export function HistoryPanel({
       setArtifactBusyId(conversation.id)
       setArtifactsError(null)
       try {
-        const result = await window.socratopia.artifacts.endClass({
+        const base = {
           conversationId: conversation.id,
           companionId: conversation.companionId,
-          textbookId: conversation.textbookId,
-          only: types
-        })
+          textbookId: conversation.textbookId
+        }
+        // An empty `only` means "generate nothing"; omit it so the main
+        // process generates every artifact type.
+        const result =
+          types.length > 0
+            ? await window.socratopia.artifacts.endClass({ ...base, only: types })
+            : await window.socratopia.artifacts.endClass(base)
         setArtifacts((prev) => ({ ...prev, [conversation.id]: result.record }))
       } catch (err: unknown) {
-        setArtifactsError(err instanceof Error ? err.message : '重试课后产物失败')
+        setArtifactsError(toUserMessage(err, '重试课后产物失败'))
       } finally {
         setArtifactBusyId(null)
       }
@@ -238,6 +244,12 @@ export function HistoryPanel({
       {exportError !== null && (
         <p role="alert" className="text-sm text-red-400">
           {exportError}
+        </p>
+      )}
+
+      {exportNotice !== null && (
+        <p role="status" className="text-sm text-[var(--muted-foreground)]">
+          {exportNotice}
         </p>
       )}
 
@@ -349,9 +361,21 @@ export function HistoryPanel({
                         正在读取课后产物…
                       </p>
                     ) : artifacts[conversation.id] === null ? (
-                      <p className="text-xs text-[var(--muted-foreground)]">
-                        这节课还没有课后产物。
-                      </p>
+                      <div className="space-y-2">
+                        <p className="text-xs text-[var(--muted-foreground)]">
+                          这节课还没有课后产物：可以在下课时生成，也可以现在直接生成。
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void redoArtifacts(conversation, [])}
+                          disabled={artifactBusyId === conversation.id}
+                          className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs hover:bg-[var(--muted)] disabled:opacity-50"
+                        >
+                          {artifactBusyId === conversation.id
+                            ? '生成中…'
+                            : '生成课后产物'}
+                        </button>
+                      </div>
                     ) : (
                       <EndClassResultView
                         record={artifacts[conversation.id]!}

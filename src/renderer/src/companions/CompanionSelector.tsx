@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
+
+import { toUserMessage } from '../lib/user-message'
 import type { Companion } from '../../../shared/schemas/companion'
 import { useClassroom, type ClassroomContextValue } from '../context/ClassroomContext'
 import { CompanionCard } from './CompanionCard'
@@ -61,6 +63,7 @@ export function CompanionSelector({
     { type: 'create' } | { type: 'edit'; companion: Companion } | null
   >(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [reloadToken, setReloadToken] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -77,7 +80,7 @@ export function CompanionSelector({
       })
       .catch((err: unknown) => {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : String(err))
+        setError(toUserMessage(err, String(err)))
         setStatus('error')
       })
 
@@ -91,7 +94,7 @@ export function CompanionSelector({
 
   const refresh = useCallback(() => {
     setAttempt((value) => value + 1)
-  }, [])
+  }, [reloadToken])
 
   const handleCreate = useCallback(
     async (input: CustomCompanionInput) => {
@@ -235,9 +238,16 @@ export function CompanionSelector({
       ) : null}
 
       {status === 'ready' && companions.length === 0 ? (
-        <p className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-6 text-sm text-[var(--muted-foreground)]">
-          没有找到可用的同伴。
-        </p>
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-6 text-sm text-[var(--muted-foreground)]">
+          <p>没有找到可用的同伴。可以重试读取，或新建一个自定义角色。</p>
+          <button
+            type="button"
+            onClick={() => setReloadToken((value) => value + 1)}
+            className="mt-2 rounded-md border border-[var(--border)] px-3 py-1.5 text-xs hover:bg-[var(--muted)]"
+          >
+            重试
+          </button>
+        </div>
       ) : null}
 
       {status === 'ready' && companions.length > 0 ? (

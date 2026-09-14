@@ -29,6 +29,8 @@ export interface UseConversationResult {
   editMessage: (messageId: string, content: string) => Promise<void>
   /** Whether a retry is possible (a user message was sent and we are idle). */
   canRetry: boolean
+  /** Non-error notice shown above the composer (e.g. generation stopped). */
+  notice: string | null
 }
 
 function buildConversationTitle(text: string): string {
@@ -50,6 +52,8 @@ export function useConversation(options: UseConversationOptions): UseConversatio
 
   const [messages, setMessages] = useState<Message[]>([])
   const [localError, setLocalError] = useState<StreamError | null>(null)
+  // A user-visible note (e.g. "generation stopped") that is not an error.
+  const [notice, setNotice] = useState<string | null>(null)
   const lastUserMessageRef = useRef<string | null>(null)
   // Avoid double-sends while a request is being set up.
   const sendingRef = useRef(false)
@@ -108,7 +112,29 @@ export function useConversation(options: UseConversationOptions): UseConversatio
         reasoningEffort
       })
 
-      if (!result.cancelled && result.content.trim().length > 0) {
+      if (result.cancelled) {
+        // Stopping (or leaving the classroom) must not silently throw away
+        // what the learner already paid for: keep the partial reply with
+        // an explicit marker and offer a one-click regenerate.
+        if (result.content.trim().length > 0) {
+          try {
+            const assistantMessage = await window.socratopia.messages.append({
+              conversationId: activeConversationId,
+              role: 'assistant',
+              content: `${result.content}\n\n（已停止生成，内容未完成）`
+            })
+            setMessages((prev) => [...prev, assistantMessage])
+            setNotice('已停止生成：未完成的内容已保留，可以继续追问或重新生成。')
+          } catch {
+            setNotice('已停止生成：未完成的内容未能保存。')
+          }
+        } else {
+          setNotice('已停止生成，本条回复没有内容。')
+        }
+        return
+      }
+
+      if (result.content.trim().length > 0) {
         try {
           const assistantMessage = await window.socratopia.messages.append({
             conversationId: activeConversationId,
@@ -157,6 +183,7 @@ export function useConversation(options: UseConversationOptions): UseConversatio
 
       sendingRef.current = true
       setLocalError(null)
+      setNotice(null)
       lastUserMessageRef.current = trimmed
 
       void (async () => {
@@ -264,6 +291,7 @@ export function useConversation(options: UseConversationOptions): UseConversatio
     if (text === null) return
     lastUserMessageRef.current = text
     setLocalError(null)
+    setNotice(null)
     await runStream(conversationId, text)
   }, [chat, conversationId, messages, runStream])
 
@@ -275,6 +303,7 @@ export function useConversation(options: UseConversationOptions): UseConversatio
     streamingContent: chat.state.assistantContent,
     isStreaming: chat.state.isStreaming,
     error,
+    notice,
     send,
     cancel,
     retry,

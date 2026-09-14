@@ -6,6 +6,7 @@ import type {
   Flashcard
 } from '../../../shared/schemas/artifact'
 import { FlashcardEditor } from './FlashcardEditor'
+import { toUserMessage } from '../lib/user-message'
 
 export interface EndClassButtonProps {
   conversationId: string | null
@@ -69,7 +70,7 @@ export function EndClassButton({
       setConfirmOpen(false)
       if (only === undefined) onEnded?.()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '课后整理失败，请重试')
+      setError(toUserMessage(err, '课后整理失败，请重试'))
     } finally {
       setBusy(false)
     }

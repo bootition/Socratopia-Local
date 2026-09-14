@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+
+import { toUserMessage } from '../lib/user-message'
 import type { Note } from '../../../shared/schemas/note'
 
 const COLOR_DOT: Record<Note['color'], string> = {
@@ -44,7 +46,7 @@ export function NotesPanel(): React.ReactElement {
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '无法读取笔记')
+          setError(toUserMessage(err, '无法读取笔记'))
         }
       })
       .finally(() => {
@@ -63,7 +65,7 @@ export function NotesPanel(): React.ReactElement {
       setNotes((prev) => prev.map((n) => (n.id === noteId ? updated : n)))
       setEditingId(null)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '保存笔记失败')
+      setError(toUserMessage(err, '保存笔记失败'))
     } finally {
       setBusy(false)
     }
@@ -71,13 +73,14 @@ export function NotesPanel(): React.ReactElement {
 
   async function remove(noteId: string): Promise<void> {
     setBusy(true)
+    if (!window.confirm('删除这条笔记？删除后无法恢复。')) return
     setError(null)
     try {
       await window.socratopia.notes.delete(noteId)
       setNotes((prev) => prev.filter((n) => n.id !== noteId))
       if (editingId === noteId) setEditingId(null)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '删除笔记失败')
+      setError(toUserMessage(err, '删除笔记失败'))
     } finally {
       setBusy(false)
     }

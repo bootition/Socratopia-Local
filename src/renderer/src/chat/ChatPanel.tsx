@@ -139,6 +139,15 @@ export function ChatPanel({
         </div>
       </header>
 
+      {conversation.conversationId !== null && companionId === null && (
+        <div
+          role="status"
+          className="border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-300"
+        >
+          这位同伴已被删除，本课为只读回看。选择一位新同伴会开始新的课堂。
+        </div>
+      )}
+
       {textbookMeta !== null && textbookMeta.progress.totalPages !== null && (
         <ReadingWindow
           textbookId={textbookMeta.id}
@@ -210,6 +219,23 @@ export function ChatPanel({
           </div>
         )}
       </div>
+
+      {conversation.notice !== null && (
+        <div
+          role="status"
+          className="mx-4 mb-2 flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300"
+        >
+          <span>{conversation.notice}</span>
+          <button
+            type="button"
+            onClick={() => void conversation.retry()}
+            disabled={!conversation.canRetry}
+            className="shrink-0 rounded border border-amber-400/50 px-2 py-1 transition-colors hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            重新生成
+          </button>
+        </div>
+      )}
 
       <ChatInput
         insertText={insertText}

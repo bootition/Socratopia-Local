@@ -1,5 +1,6 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import type React from 'react'
+import { toUserMessage } from '../lib/user-message'
 import { useClassroom } from '../context/ClassroomContext'
 import type { Textbook } from '../../../shared/schemas/textbook'
 import { TextbookPreview } from './TextbookPreview'
@@ -21,11 +22,11 @@ function readFileAsText(file: File): Promise<string> {
       if (typeof reader.result === 'string') {
         resolve(reader.result)
       } else {
-        reject(new Error('The selected file could not be read as text.'))
+        reject(new Error('无法按 UTF-8 文本读取该文件。'))
       }
     }
     reader.onerror = () => {
-      reject(reader.error ?? new Error('The selected file could not be read.'))
+      reject(reader.error ?? new Error('无法读取该文件。'))
     }
     reader.readAsText(file)
   })
@@ -40,7 +41,7 @@ function detectFormat(fileName: string): TextbookImportFormat | null {
 
 function deriveTitle(fileName: string): string {
   const base = fileName.replace(/\.(md|txt)$/i, '').trim()
-  return base.length > 0 ? base : 'Untitled textbook'
+  return base.length > 0 ? base : '未命名教材'
 }
 
 const INPUT_CLASSES =
@@ -62,9 +63,14 @@ const ERROR_TEXT_CLASSES = 'text-sm text-red-600 dark:text-red-400'
 export interface TextbookImporterProps {
   /** Notified after a successful import so sibling views can refresh. */
   onImported?: (textbook: Textbook) => void
+  /** Jump to the classroom right after a successful import. */
+  onGoToClassroom?: () => void
 }
 
-export function TextbookImporter({ onImported }: TextbookImporterProps = {}): React.ReactElement {
+export function TextbookImporter({
+  onImported,
+  onGoToClassroom
+}: TextbookImporterProps = {}): React.ReactElement {
   const { setTextbookId } = useClassroom()
 
   const [title, setTitle] = useState('')
@@ -107,18 +113,22 @@ export function TextbookImporter({ onImported }: TextbookImporterProps = {}): Re
 
     const detected = detectFormat(file.name)
     if (detected === null) {
-      setError('Unsupported file type. Choose a .md or .txt file.')
+      setError('不支持的文件类型：请选择 .md / .txt，或用「选择文件导入」按钮导入 PDF / EPUB / Word。')
       return
     }
 
     if (file.size > 100 * 1024 * 1024) {
-      setError('File is too large (100 MB limit).')
+      setError('文件太大（上限 100 MB）。')
       return
     }
 
     setError(null)
     try {
       const text = await readFileAsText(file)
+      if (text.length > 4_000_000) {
+        setError('文本超过 400 万字符上限，请拆分后再导入。')
+        return
+      }
       setContent(text)
       setFormat(detected)
       setTitle((current) =>
@@ -126,7 +136,7 @@ export function TextbookImporter({ onImported }: TextbookImporterProps = {}): Re
       )
       clearFieldError('content')
     } catch {
-      setError('Could not read that file. Choose a .md or .txt file and try again.')
+      setError('无法读取该文件，请确认是 UTF-8 编码的 .md / .txt 文本。')
     }
   }
 
@@ -140,8 +150,7 @@ export function TextbookImporter({ onImported }: TextbookImporterProps = {}): Re
       setSaved(textbook)
       onImported?.(textbook)
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'Unknown error.'
-      setError(`Could not import that file: ${message}`)
+      setError(toUserMessage(cause, '导入文件失败'))
     } finally {
       setIsSaving(false)
     }
@@ -152,11 +161,11 @@ export function TextbookImporter({ onImported }: TextbookImporterProps = {}): Re
 
     const trimmedTitle = title.trim()
     const nextErrors: FieldErrors = {}
-    if (trimmedTitle.length === 0) nextErrors.title = 'Title is required.'
-    if (content.trim().length === 0) nextErrors.content = 'Content is required.'
+    if (trimmedTitle.length === 0) nextErrors.title = '请填写教材标题。'
+    if (content.trim().length === 0) nextErrors.content = '内容不能为空。'
     setFieldErrors(nextErrors)
     if (content.length > 4_000_000) {
-      nextErrors.content = 'Content exceeds the 4,000,000 character limit.'
+      nextErrors.content = '内容超过 400 万字符上限，请拆分后再导入。'
     }
     setFieldErrors(nextErrors)
     if (nextErrors.title !== undefined || nextErrors.content !== undefined) {
@@ -183,7 +192,13 @@ export function TextbookImporter({ onImported }: TextbookImporterProps = {}): Re
   }
 
   if (saved !== null) {
-    return <TextbookPreview textbook={saved} onReimport={resetToForm} />
+    return (
+      <TextbookPreview
+        textbook={saved}
+        onReimport={resetToForm}
+        {...(onGoToClassroom !== undefined ? { onGoToClassroom } : {})}
+      />
+    )
   }
 
   return (
@@ -317,7 +332,7 @@ export function TextbookImporter({ onImported }: TextbookImporterProps = {}): Re
       </div>
 
       <button type="submit" disabled={isSaving} className={PRIMARY_BUTTON_CLASSES}>
-        {isSaving ? 'Saving…' : 'Save textbook'}
+        {isSaving ? '正在保存…' : '保存教材'}
       </button>
     </form>
   )
