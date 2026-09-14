@@ -5,16 +5,20 @@ import {
   IpcCreateConversationInputSchema,
   IpcGetConversationInputSchema,
   IpcAppendMessageInputSchema,
-  IpcGetMessagesInputSchema
+  IpcGetMessagesInputSchema,
+  IpcSearchMessagesInputSchema
 } from '../../shared/schemas/ipc'
 import {
   CONVERSATIONS_CREATE,
   CONVERSATIONS_LIST,
   CONVERSATIONS_GET,
   MESSAGES_APPEND,
-  MESSAGES_LIST
+  MESSAGES_LIST,
+  MESSAGES_SEARCH
 } from '../../shared/channel-names'
 import { DEFAULT_WORLD_ID } from '../storage/app-data'
+import type { MessageSearchHit } from '../../shared/schemas/message'
+import { searchMessages } from '../search/message-search'
 import {
   createConversation,
   listConversations,
@@ -80,4 +84,12 @@ export function registerConversationIpc(options: RegisterConversationIpcOptions)
     const parsed = IpcGetMessagesInputSchema.parse(input)
     return listMessages(conversationDir, parsed.conversationId)
   })
+
+  ipcMain.handle(
+    MESSAGES_SEARCH,
+    async (_event, input: unknown): Promise<MessageSearchHit[]> => {
+      const parsed = IpcSearchMessagesInputSchema.parse(input)
+      return searchMessages(conversationDir, parsed.query, { limit: parsed.limit })
+    }
+  )
 }

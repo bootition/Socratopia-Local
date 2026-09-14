@@ -138,8 +138,7 @@ export async function listConversations(rootDir: string): Promise<Conversation[]
 export async function getConversation(
   rootDir: string,
   id: string
-): Promise<Conversation> {
-  // Reject path traversal and null bytes before any I/O
+): Promise<Conversation> {  // Reject path traversal and null bytes before any I/O
   assertSafeId(id)
 
   const metadataPath = join(rootDir, id, 'conversation.json')

@@ -11,21 +11,12 @@
 import { ipcMain } from 'electron'
 import {
   IpcEndClassInputSchema,
-  IpcGetArtifactInputSchema,
-  IpcUpdateFlashcardsInputSchema
+  IpcGetArtifactInputSchema
 } from '../../shared/schemas/ipc'
-import {
-  ARTIFACTS_END_CLASS,
-  ARTIFACTS_GET,
-  ARTIFACTS_UPDATE_FLASHCARDS
-} from '../../shared/channel-names'
+import { ARTIFACTS_END_CLASS, ARTIFACTS_GET } from '../../shared/channel-names'
 import type { AppPreferences } from '../../shared/schemas/preferences'
 import { readCompanionIndex } from './companions'
-import {
-  getTextbook,
-  parseCurrentPage,
-  updateTextbookProgress
-} from '../textbooks/textbook-store'
+import { getTextbook } from '../textbooks/textbook-store'
 import { listMessages } from '../conversations/message-store'
 import { endConversation } from '../conversations/conversation-store'
 import type { ArtifactStore } from '../artifacts/artifact-store'
@@ -62,7 +53,7 @@ export function registerArtifactIpc(options: RegisterArtifactIpcOptions): void {
 
       const apiKey = await readApiKey()
       if (apiKey === null) {
-        throw new Error('尚未配置 DeepSeek API Key，请先在设置里填写。')
+        throw new Error('API key not configured')
       }
 
       const companions = await readCompanionIndex(companionDir)
@@ -90,7 +81,7 @@ export function registerArtifactIpc(options: RegisterArtifactIpcOptions): void {
 
       const preferences = await readPreferences()
 
-      const result = await generator.generate({
+      return generator.generate({
         conversationId: parsed.conversationId,
         companion,
         textbook,
@@ -98,37 +89,11 @@ export function registerArtifactIpc(options: RegisterArtifactIpcOptions): void {
         model: preferences.model,
         only: parsed.only
       })
-
-      // Commit the lesson's progress to the textbook only now that the
-      // end-class run succeeded (F03: flipping pages during a lesson is
-      // not a commitment; finishing the lesson is).
-      if (textbook !== null && result.record.progress !== null) {
-        const parsedPage = parseCurrentPage(result.record.progress)
-        // Never store a page beyond the known total: the model may
-        // hallucinate page numbers, and an out-of-range progress value
-        // breaks the progress bar's ARIA semantics.
-        const totalPages = textbook.progress.totalPages
-        const currentPage =
-          parsedPage !== null && totalPages !== null && totalPages > 0
-            ? Math.min(parsedPage, totalPages)
-            : parsedPage
-        await updateTextbookProgress(textbookDir, textbook.id, {
-          ...(currentPage !== null ? { currentPage } : {}),
-          progressMarkdown: result.record.progress
-        })
-      }
-
-      return result
     }
   )
 
   ipcMain.handle(ARTIFACTS_GET, async (_event, input: unknown) => {
     const parsed = IpcGetArtifactInputSchema.parse(input)
     return store.read(parsed.conversationId)
-  })
-
-  ipcMain.handle(ARTIFACTS_UPDATE_FLASHCARDS, async (_event, input: unknown) => {
-    const parsed = IpcUpdateFlashcardsInputSchema.parse(input)
-    return store.updateFlashcards(parsed.conversationId, parsed.flashcards)
   })
 }
