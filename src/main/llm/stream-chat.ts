@@ -254,10 +254,15 @@ export class StreamChatSession {
       abortGuard.dispose()
       this.clearTimeout()
       // Release the adapter's async iterator (and its HTTP body) when
-      // the loop exits early through cancel/timeout.
-      if (this.controller.signal.aborted) {
+      // the loop exits early through cancel/timeout. Fire-and-forget: a
+      // generator suspended on a never-resolving await would otherwise
+      // block start() forever.
+      if (this.controller.signal.aborted && iterator !== undefined) {
         try {
-          await iterator?.return?.(undefined)
+          const closing = iterator.return?.(undefined)
+          if (closing !== undefined) {
+            void Promise.resolve(closing).catch(() => undefined)
+          }
         } catch {
           // Best effort.
         }

@@ -193,21 +193,22 @@ describe('createPromptRequestBuilder', () => {
         conversationId: null,
         userMessage: '你好'
       })
-    ).rejects.toThrow('Companion not found')
+    ).rejects.toThrow('这位同伴已被删除')
   })
 
-  it('rejects a missing textbook', async () => {
+  it('degrades to a lesson without grounding when the textbook is gone', async () => {
     const { paths } = await createFixture()
     const buildRequest = createPromptRequestBuilder(paths)
 
-    await expect(
-      buildRequest({
-        companionId: 'comp_alice',
-        textbookId: 'tb_missing_1',
-        conversationId: null,
-        userMessage: '你好'
-      })
-    ).rejects.toThrow('Textbook not found')
+    const result = await buildRequest({
+      companionId: 'comp_alice',
+      textbookId: 'tb_missing_1',
+      conversationId: null,
+      userMessage: '你好'
+    })
+
+    expect(result.sources).toEqual([])
+    expect(result.messages).toHaveLength(2)
   })
 
   it('honours an explicit model override', async () => {

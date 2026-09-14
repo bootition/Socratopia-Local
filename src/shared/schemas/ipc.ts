@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ArtifactType, CompanionSlot, TextbookFormat } from '../types/ids'
+import { NoteColor, NoteKind } from './note'
 import { MessageSourceSchema } from './message'
 
 // IPC input schemas. Every renderer -> main call is validated here.
@@ -15,10 +16,10 @@ export const IpcCustomCompanionInputSchema = z.strictObject({
   emotionalExpressions: z.string().max(4e3).default("")
 });
 export const IpcCompanionIdInputSchema = z.strictObject({
-  companionId: z.string().min(1, "Companion id must not be empty").refine((id) => !/[\/.]/.test(id), "Invalid companion id")
+  companionId: z.string().min(1, "Companion id must not be empty").refine((id: string) => !/[\/.]/.test(id), "Invalid companion id")
 });
 export const IpcUpdateCustomCompanionInputSchema = z.strictObject({
-  companionId: z.string().min(1, "Companion id must not be empty").refine((id) => !/[\/.]/.test(id), "Invalid companion id"),
+  companionId: z.string().min(1, "Companion id must not be empty").refine((id: string) => !/[\/.]/.test(id), "Invalid companion id"),
   companion: IpcCustomCompanionInputSchema
 });
 z.object({
@@ -42,7 +43,7 @@ z.object({
   textbookId: z.string().min(1),
   content: z.string().min(1).max(4e6)
 });
-const safeIdRefinement$1 = (id) => !/[\\/:.]/.test(id) && !id.includes("\0");
+const safeIdRefinement$1 = (id: string) => !/[\\/:.]/.test(id) && !id.includes("\0");
 export const IpcCreateConversationInputSchema = z.strictObject({
   companionId: z.string().min(1, "Companion id must not be empty").refine(safeIdRefinement$1, "Invalid companion id"),
   textbookId: z.string().min(1).refine(safeIdRefinement$1, "Invalid textbook id").nullable(),
@@ -154,10 +155,10 @@ export const IpcCreateTextbookFromTextInputSchema = z.strictObject({
 });
 export const IpcGetTextbookInputSchema = z.object({
   textbookId: z.string().min(1, "Textbook id must not be empty").refine(
-    (id) => !/[\\/:.]/.test(id),
+    (id: string) => !/[\\/:.]/.test(id),
     "Invalid textbook id"
   ).refine(
-    (id) => !id.includes("\0"),
+    (id: string) => !id.includes("\0"),
     "Invalid textbook id"
   )
 });
@@ -170,7 +171,7 @@ export const IpcDeleteTextbookInputSchema = z.strictObject({
 });
 export const IpcGetCompanionInputSchema = z.object({
   companionId: z.string().min(1, "Companion id must not be empty").refine(
-    (id) => !/[\\/.]/.test(id),
+    (id: string) => !/[\\/.]/.test(id),
     "Invalid companion id"
   )
 });

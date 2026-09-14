@@ -1,8 +1,8 @@
 // Security baseline verification for Milestone 0 Task 2
 // Checks preload exposes ONLY window.socratopia, and main process enforces secure settings.
 
-import { readFileSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -59,7 +59,11 @@ check('Settings IPC does not expose get-key channel', !settingsIpcSrc.includes("
 
 // ── Renderer isolation ──────────────────────────────────────────
 console.log('\nRenderer Isolation Checks (src/renderer/src/App.tsx):')
-const appSrc = readFileSync(resolve(root, 'src/renderer/src/App.tsx'), 'utf-8')
+const rendererRoot = resolve(root, 'src/renderer/src')
+const appSrc = readdirSync(rendererRoot, { recursive: true })
+  .filter((entry) => /\.(ts|tsx)$/.test(String(entry)) && !String(entry).endsWith('.d.ts'))
+  .map((entry) => readFileSync(join(rendererRoot, String(entry)), 'utf-8'))
+  .join(String.fromCharCode(10))
 
 check('No Node fs import in renderer', !appSrc.includes("require('fs')") && !appSrc.includes("from 'fs'"))
 check('No ipcRenderer import in renderer', !appSrc.includes('ipcRenderer'))

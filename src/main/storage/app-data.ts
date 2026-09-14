@@ -72,6 +72,24 @@ export function companionDir(
   return join(worldDir(dataRoot, worldId, profileId), 'companions')
 }
 
+/** Imported textbooks (source.md + metadata + original file). */
+export function textbookDir(
+  dataRoot: string,
+  worldId: string = DEFAULT_WORLD_ID,
+  profileId: string = DEFAULT_PROFILE_ID
+): string {
+  return join(worldDir(dataRoot, worldId, profileId), 'textbooks')
+}
+
+/** Classroom conversations (messages.jsonl + artifacts). */
+export function conversationDir(
+  dataRoot: string,
+  worldId: string = DEFAULT_WORLD_ID,
+  profileId: string = DEFAULT_PROFILE_ID
+): string {
+  return join(worldDir(dataRoot, worldId, profileId), 'conversations')
+}
+
 /** Notes & highlights JSONL for the default world. */
 export function notesPath(
   dataRoot: string,

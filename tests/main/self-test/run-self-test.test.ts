@@ -22,7 +22,7 @@ describe('runSelfTest', () => {
         const report = await runSelfTest(outPath, process.cwd())
 
         expect(report.ok).toBe(true)
-        expect(report.checks.map((check) => check.name)).toEqual(
+        expect(report.checks.map((check: { name: string }) => check.name)).toEqual(
           expect.arrayContaining([
             '初始化数据目录与参考角色',
             '解析内置 PDF（pdf.js）',
@@ -39,7 +39,7 @@ describe('runSelfTest', () => {
           checks: Array<{ ok: boolean }>
         }
         expect(written.ok).toBe(true)
-        expect(written.checks.every((check) => check.ok)).toBe(true)
+        expect(written.checks.every((check: { ok: boolean }) => check.ok)).toBe(true)
       } finally {
         await rm(dir, { recursive: true, force: true })
       }

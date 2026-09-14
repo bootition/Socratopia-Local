@@ -84,7 +84,7 @@ export function createPromptRequestBuilder(
     const companions = await readCompanionIndex(paths.companionDir)
     const companion = companions.find((c) => c.id === input.companionId)
     if (!companion) {
-      throw new Error(`Companion not found: ${input.companionId}`)
+      throw new Error('这位同伴已被删除，请重新选择一位同伴。')
     }
 
     // 2. Optional world story and learner profile.

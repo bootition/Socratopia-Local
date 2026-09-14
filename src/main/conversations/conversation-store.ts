@@ -1,8 +1,9 @@
-import { mkdir, writeFile, readFile, readdir } from 'node:fs/promises'
+import { mkdir, readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Conversation } from '../../shared/schemas/conversation'
 import { ConversationSchema } from '../../shared/schemas/conversation'
+import { writeFileAtomic } from '../storage/atomic-write'
 
 // ---------------------------------------------------------------
 // Types
@@ -94,7 +95,7 @@ export async function createConversation(
   await mkdir(dir, { recursive: true })
 
   // Write conversation.json (pretty-printed)
-  await writeFile(join(dir, 'conversation.json'), JSON.stringify(parsed.data, null, 2), 'utf-8')
+  await writeFileAtomic(join(dir, 'conversation.json'), JSON.stringify(parsed.data, null, 2))
 
   return parsed.data as Conversation
 }
@@ -165,4 +166,26 @@ export async function getConversation(
   }
 
   return validated.data as Conversation
+}
+
+/**
+ * Mark a lesson as ended.
+ *
+ * Called by the end-class pipeline before artifacts are generated, so a
+ * failed section can still be retried on the same ended lesson.
+ */
+export async function endConversation(
+  rootDir: string,
+  conversationId: string,
+  endedAt: string = new Date().toISOString()
+): Promise<Conversation> {
+  const conversation = await getConversation(rootDir, conversationId)
+  const updated = { ...conversation, endedAt, updatedAt: endedAt }
+  const validated = ConversationSchema.parse(updated)
+
+  await writeFileAtomic(
+    join(rootDir, conversationId, 'conversation.json'),
+    JSON.stringify(validated, null, 2)
+  )
+  return validated as Conversation
 }

@@ -5,6 +5,7 @@
  */
 
 import { appendFile, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
+import { writeFileAtomic } from '../storage/atomic-write'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {

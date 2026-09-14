@@ -153,7 +153,41 @@ function installBridge(options: {
     }
   }
 
-  window.socratopia = api
+  window.socratopia = {
+  ...api,
+  notes: {
+    list: () => Promise.resolve([]),
+    create: () => Promise.reject(new Error('not used')),
+    update: () => Promise.reject(new Error('not used')),
+    delete: () => Promise.resolve()
+  },
+  artifacts: {
+    endClass: () => Promise.reject(new Error('not used')),
+    get: () => Promise.resolve(null),
+    updateFlashcards: () => Promise.reject(new Error('not used'))
+  },
+  stats: {
+    get: () =>
+      Promise.resolve({
+        totalTokens: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        calls: 0,
+        byModel: []
+      })
+  },
+  archive: {
+    exportBackup: () => Promise.resolve(null),
+    restoreBackup: () => Promise.resolve(null),
+    openDataFolder: () => Promise.resolve()
+  },
+  textbooks: {
+    ...api.textbooks,
+    getPage: () => Promise.resolve(null),
+    listOrphans: () => Promise.resolve([]),
+    cleanupOrphans: () => Promise.resolve(0)
+  }
+} as typeof api
   return bridge
 }
 

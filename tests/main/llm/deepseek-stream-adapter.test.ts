@@ -562,7 +562,7 @@ describe('DeepSeekStreamAdapter — abort signal', () => {
 
     await expect(
       collectChunks(adapter, streamParams({ signal: controller.signal }))
-    ).rejects.toThrow('The operation was aborted')
+    ).rejects.toThrow('请求已取消')
   })
 })
 

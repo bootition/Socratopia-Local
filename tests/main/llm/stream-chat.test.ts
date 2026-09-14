@@ -12,7 +12,6 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { getEventListeners } from 'node:events'
-import { getEventListeners } from 'node:events'
 
 import type {
   DeepSeekStreamAdapter,
@@ -405,7 +404,8 @@ describe('StreamChatSession — timeout guard', () => {
     // Should have token + ABORTED error  (not end)
     const errorEvent = events.find((e) => e.type === 'error')
     expect(errorEvent).toBeDefined()
-    expect((errorEvent as { code: string }).code).toBe('ABORTED')
+    // A timeout is distinct from a user cancellation.
+    expect((errorEvent as { code: string }).code).toBe('TIMEOUT')
 
     const hasEnd = events.some((e) => e.type === 'end')
     expect(hasEnd).toBe(false)

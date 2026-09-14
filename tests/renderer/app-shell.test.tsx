@@ -158,3 +158,94 @@ describe('AppShell', () => {
 
 describe('App renders shell', () => {
   function notImplemented(): Promise<never> {
+    return Promise.reject(new Error('not implemented'))
+  }
+
+  function installBridge(): void {
+    const api: SocratopiaAPI = {
+      getPlatform: () => Promise.resolve('win32'),
+      getVersion: () => Promise.resolve('0.1.0'),
+      settings: {
+        hasDeepSeekKey: () => Promise.resolve(true),
+        setDeepSeekKey: () => Promise.resolve(),
+        deleteDeepSeekKey: () => Promise.resolve(),
+        getPreferences: () => Promise.resolve(DEFAULT_PREFERENCES),
+        setPreferences: () => Promise.resolve(DEFAULT_PREFERENCES),
+        testDeepSeekKey: () =>
+          Promise.resolve({ ok: true, model: 'deepseek-v4-pro' })
+      },
+      companions: {
+        list: () => Promise.resolve([]),
+        get: notImplemented,
+        createCustom: notImplemented,
+        updateCustom: notImplemented,
+        deleteCustom: () => Promise.resolve()
+      },
+      textbooks: {
+        createFromText: notImplemented,
+        list: () => Promise.resolve([]),
+        get: notImplemented,
+        delete: () => Promise.resolve(),
+        importFile: () => Promise.resolve(null),
+        getPage: () => Promise.resolve(null),
+        listOrphans: () => Promise.resolve([]),
+        cleanupOrphans: () => Promise.resolve(0)
+      },
+      conversations: {
+        create: notImplemented,
+        list: () => Promise.resolve([]),
+        get: notImplemented
+      },
+      messages: {
+        append: notImplemented,
+        list: () => Promise.resolve([]),
+        search: () => Promise.resolve([]),
+        update: notImplemented
+      },
+      artifacts: {
+        endClass: notImplemented,
+        get: () => Promise.resolve(null),
+        updateFlashcards: notImplemented
+      },
+      stats: {
+        get: () =>
+          Promise.resolve({
+            totalTokens: 0,
+            promptTokens: 0,
+            completionTokens: 0,
+            calls: 0,
+            byModel: []
+          })
+      },
+      notes: {
+        list: () => Promise.resolve([]),
+        create: notImplemented,
+        update: notImplemented,
+        delete: () => Promise.resolve()
+      },
+      archive: {
+        exportBackup: () => Promise.resolve(null),
+        restoreBackup: () => Promise.resolve(null),
+        openDataFolder: () => Promise.resolve()
+      },
+      chat: {
+        startStream: notImplemented,
+        cancelStream: () => Promise.resolve(),
+        onToken: () => () => undefined,
+        onError: () => () => undefined,
+        onEnd: () => () => undefined,
+        onUsage: () => () => undefined
+      }
+    }
+
+    window.socratopia = api
+  }
+
+  it('renders the shell instead of the splash when a key is configured', async () => {
+    installBridge()
+    render(<App />)
+
+    expect(await screen.findByText('Socratopia')).toBeInTheDocument()
+    expect(screen.getByRole('main')).toBeInTheDocument()
+  })
+})

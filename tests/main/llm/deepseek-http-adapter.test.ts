@@ -388,6 +388,6 @@ describe('createDeepSeekHttpAdapter — extras', () => {
       apiKey: testApiKey
     })
 
-    expect(result).toEqual({ ok: false, status: 0 })
+    expect(result).toEqual({ ok: false, status: 0, errorCode: 'TIMEOUT' })
   })
 })
