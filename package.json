@@ -16,8 +16,10 @@
     "test:unit": "vitest run",
     "test": "npm run typecheck && npm run test:unit && npm run test:security",
     "pack:dir": "npm run build && electron-builder --dir --win",
-    "dist": "npm run build && electron-builder --win",
-    "ship": "node scripts/ship.mjs"
+    "dist": "node scripts/dist.mjs all",
+    "ship": "node scripts/ship.mjs",
+    "dist:user": "node scripts/dist.mjs user",
+    "dist:machine": "node scripts/dist.mjs machine"
   },
   "dependencies": {
     "adm-zip": "^0.6.1",
@@ -79,10 +81,11 @@
     "win": {
       "target": [
         "nsis",
-        "portable"
+        "portable",
+        "zip"
       ],
       "icon": "build/icon.png",
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "Socratopia-Local-${version}-win-x64.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -92,10 +95,11 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Socratopia-Local",
       "deleteAppDataOnUninstall": false,
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "Socratopia-Local-Setup-${version}.${ext}",
+      "include": "build/installer.nsh"
     },
     "portable": {
-      "artifactName": "${productName}-Portable-${version}.${ext}"
+      "artifactName": "Socratopia-Local-Portable-${version}.${ext}"
     },
     "mac": {
       "target": [

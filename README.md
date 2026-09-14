@@ -7,6 +7,25 @@
 - 上游最新公开版本：Socratopia **v5.1.0**（2026-09-12，见 [官方 changelog](https://www.socratopia.app/zh/changelog)）
 - 上游新功能审查与落地建议：[docs/产品设计/上游功能审查与建议.md](docs/产品设计/上游功能审查与建议.md)
 
+## 下载与安装（普通用户）
+
+> 完整说明与故障排查见 [docs/产品设计/安装与分发说明.md](docs/产品设计/安装与分发说明.md)。
+
+`release/` 目录提供四种分发形态：
+
+| 文件 | 说明 |
+|---|---|
+| `Socratopia-Local-Setup-User-0.1.0.exe` | 当前用户安装器（推荐，不需要管理员） |
+| `Socratopia-Local-Setup-Machine-0.1.0.exe` | 全机安装器（需要 UAC） |
+| `Socratopia-Local-Portable-0.1.0.exe` | 便携版，双击即用 |
+| `Socratopia-Local-0.1.0-win-x64.zip` | 便携压缩包，解压后运行 `Socratopia-Local.exe` |
+
+安装三步：双击安装器 → 选择安装位置（默认目录不可写时会自动回退并用弹窗告知；全部不可写时会明确报错并让你手动选择）→ 完成，桌面与开始菜单出现 `Socratopia-Local` 图标。
+
+首次启动：粘贴 DeepSeek API Key → 先点「测试连接（不保存）」确认可用 → 保存进入课堂；再到 Textbook 导入教材（Markdown / 文本 / PDF / EPUB / Word）即可上课。
+
+学习数据保存在 `%APPDATA%\Socratopia-Local\Socratopia-Local`；**卸载不会删除数据**（卸载时会提示）。
+
 ## 项目目标
 
 复刻 Socratopia 的核心教学体验：角色化 AI、苏格拉底式追问、教材阅读、学习状态管理、课后学习产物；但完全本地化运行，只服务个人自用，用户自带 DeepSeek API Key，不依赖 Socratopia 的远程代理、订阅服务、社区或书币系统。
@@ -30,7 +49,7 @@
 | LLM 调用 | 经过 `llm.socratopia.app` 代理 | 直连 DeepSeek API |
 | 计费 | 订阅/免费额度（上游 4.2 起公开教材免费、取消书币） | 用户自付 DeepSeek API 费用，本地统计用量 |
 | 数据 | 本地学习数据 + 云端账号/云 App/跨机同步 | 纯本地文件系统，不做云同步 |
-| 内容 | 官方书城 + 用户导入（PDF/EPUB/DOCX） | 用户自己的 Markdown/文本；PDF/EPUB/DOCX 后续 |
+| 内容 | 官方书城 + 用户导入（PDF/EPUB/DOCX） | 用户自己的 Markdown/文本/PDF/EPUB/Word（均已支持） |
 | 社区 | Agora、群聊、分享、愿望单、工坊 | 不做 |
 | 更新 | 自动更新（上游 5.1.0） | 手动更新 |
 | 语音 | Voice Pack / 录音回放 | 后置，暂不实现 |
@@ -82,8 +101,8 @@ Socratopia-Local/
 - [x] 自定义角色：创建/编辑/删除，进入角色选择器与课堂 prompt；索引丢失可从 markdown 恢复
 - [x] 打包：electron-builder 配置，`release/win-unpacked` 已做真实启动冒烟（读取 `resources/reference`，初始化 9 个角色）
 
-> 进度快照（2026-09-14）：Milestone 0–4 全部完成；上游 3.x–5.x 功能审查的 Batch 1–3 与 Batch 4 主体已落地，剩余为 PDF/EPUB/DOCX 导入等扩展格式（见审查文档 Batch 4 尾项）。
-> 质量门禁：`npm test` 824 用例、`npm run typecheck`、`npm run build`、`npm run test:security`（38 项）、`npm audit`（0 漏洞）全部通过；`release/win-unpacked` 打包冒烟验证可启动并初始化 9 个角色（asar 23.8MB）。
+> 进度快照（2026-09-15）：Milestone 0–4 全部完成；上游 3.x–5.x 功能审查的 Batch 1–4 已全部落地（含 PDF/EPUB/DOCX 导入、进度可视化、自定义角色）。
+> 质量门禁：`npm test` 569 用例（项目从会话记录恢复后的套件）、`npm run typecheck`、`npm run build`、`npm run test:security`（38 项）、`npm audit`（0 漏洞）全部通过；三条分发产物已构建，并完成真实安装 e2e（安装 → 桌面/开始菜单快捷方式 → 安装版自检 7/7 → 静默卸载 → 用户数据保留）。
 >
 > 已完成一轮红队对抗审查（并发/数据完整性/资源耗尽/打包/无障碍），发现并修复 20+ 项问题，详见 `docs/产品设计/上游功能审查与建议.md` 的「红队审查结论」。
 > 接入真实 API Key 前请先看 [docs/产品设计/接入DeepSeek检查清单.md](docs/产品设计/接入DeepSeek检查清单.md)（含连接测试、费用默认值与出错对照表）。

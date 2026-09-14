@@ -12,8 +12,8 @@
  */
 import { execFileSync } from 'node:child_process'
 
-function run(command, args) {
-  execFileSync(command, args, { stdio: 'inherit' })
+function run(command, args, useShell = false) {
+  execFileSync(command, args, { stdio: 'inherit', shell: useShell })
 }
 
 function capture(command, args) {
@@ -25,10 +25,10 @@ const message =
   `chore: sync workspace ${new Date().toISOString()}`
 
 console.log('== 1/4 gates: npm test ==')
-run('npm', ['test'])
+run('npm', ['test'], true)
 
 console.log('== 2/4 gates: npm run build ==')
-run('npm', ['run', 'build'])
+run('npm', ['run', 'build'], true)
 
 const dirty = capture('git', ['status', '--porcelain'])
 if (dirty.length > 0) {
