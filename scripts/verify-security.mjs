@@ -46,6 +46,8 @@ const mainSrc = readFileSync(resolve(root, 'src/main/index.ts'), 'utf-8')
 check('contextIsolation: true', mainSrc.includes('contextIsolation: true'), 'renderer must not share JS context with preload')
 check('nodeIntegration: false', mainSrc.includes('nodeIntegration: false'), 'renderer must not have Node.js access')
 check('sandbox: true', mainSrc.includes('sandbox: true'), 'renderer must run in OS-level sandbox')
+check('Blocks in-window navigation (will-navigate)', mainSrc.includes("'will-navigate'"), 'external pages must not replace the app renderer')
+check('Validates external link protocols', mainSrc.includes('isExternalLink'), 'only http(s)/mailto links may reach shell.openExternal')
 
 // ── Settings IPC security ──────────────────────────────────────
 console.log('\nSettings IPC Security Checks (src/main/ipc/settings.ts):')

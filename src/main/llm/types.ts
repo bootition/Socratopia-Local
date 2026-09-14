@@ -67,7 +67,13 @@ export interface DeepSeekCompletionData {
  */
 export type DeepSeekApiResult =
   | { ok: true; data: DeepSeekCompletionData }
-  | { ok: false; status: number; body?: Record<string, unknown> }
+  | {
+      ok: false
+      status: number
+      body?: Record<string, unknown>
+      /** Fine-grained failure kind so callers can map it to a clear message. */
+      errorCode?: 'TIMEOUT' | 'NETWORK_ERROR' | 'INVALID_RESPONSE'
+    }
 
 /**
  * Parameters the DeepSeekClient passes to the adapter.
@@ -79,6 +85,8 @@ export interface DeepSeekApiParams {
   model: string
   messages: DeepSeekChatMessage[]
   apiKey: string
+  /** Optional output cap (used by the connection test). */
+  maxTokens?: number
 }
 
 /**

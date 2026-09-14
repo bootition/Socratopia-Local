@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { readFile } from 'node:fs/promises'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { readFile, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import type { Companion } from '../../../src/shared/schemas/companion'
 import type { DeepSeekChatMessage } from '../../../src/main/llm/types'
 import type { CompanionId } from '../../../src/shared/types/ids'
@@ -8,20 +9,26 @@ import { CompanionSource, CompanionGender } from '../../../src/shared/types/ids'
 import { loadReferenceCompanions } from '../../../src/main/companions/reference-loader'
 import { buildSystemPrompt, buildMessages } from '../../../src/main/prompt/prompt-builder'
 
-const projectsRoot = 'D:\\Socratopia-Local'
+const projectsRoot = process.cwd()
 const candidatesDir = join(projectsRoot, 'reference', '角色设定', 'candidates')
 const worldPath = join(projectsRoot, 'reference', 'world_preset.md')
 
 let companions: Companion[] = []
 let worldContext: string = ''
+let tempCompanionDir: string = ''
 
 beforeAll(async () => {
+  tempCompanionDir = await mkdtemp(join(tmpdir(), 'socratopia-prompt-'))
   const result = await loadReferenceCompanions({
     candidatesDir,
-    companionDir: join(projectsRoot, 'out', 'test-companions')
+    companionDir: tempCompanionDir
   })
   companions = result.companions
   worldContext = await readFile(worldPath, 'utf-8')
+})
+
+afterAll(async () => {
+  await rm(tempCompanionDir, { recursive: true, force: true })
 })
 
 // ---------------------------------------------------------------------------

@@ -4,7 +4,8 @@
 
 当前参考基线：
 - 本地逆向基线：Socratopia v2.1.1（2026-06-12 报告）
-- 最新公开调研基线：Socratopia v3.2.0（2026-06-27）
+- 上游最新公开版本：Socratopia **v5.1.0**（2026-09-12，见 [官方 changelog](https://www.socratopia.app/zh/changelog)）
+- 上游新功能审查与落地建议：[docs/产品设计/上游功能审查与建议.md](docs/产品设计/上游功能审查与建议.md)
 
 ## 项目目标
 
@@ -20,19 +21,19 @@
 | API Key | 由用户提供，主进程保存，渲染器不接触明文 Key |
 | 存储 | 从第一版开始使用本地文件系统持久化，不用临时 localStorage 方案 |
 | 用户范围 | 单用户、自用；不做账户、多租户、同步、订阅、支付 |
-| 社区/商城 | 不做 Agora、论坛、推荐、书币、教材商城 |
+| 社区/商城 | 不做 Agora、论坛、分享、AI Book Finder；上游已于 4.2.0 取消书币，公开教材免费，本项目也不做书城 |
 
 ## 关键差异
 
 | 方面 | Socratopia | Socratopia-Local |
 |---|---|---|
 | LLM 调用 | 经过 `llm.socratopia.app` 代理 | 直连 DeepSeek API |
-| 计费 | 订阅 + token 配额 + 书币商城 | 用户自付 DeepSeek API 费用 |
-| 数据 | 本地学习数据 + 云端账号/社区/商城 | 纯本地文件系统 |
-| 内容 | 官方 AI-generated library + 用户导入 | 用户自己的 PDF/EPUB/Markdown；可引用本地角色和世界观素材 |
+| 计费 | 订阅/免费额度（上游 4.2 起公开教材免费、取消书币） | 用户自付 DeepSeek API 费用，本地统计用量 |
+| 数据 | 本地学习数据 + 云端账号/云 App/跨机同步 | 纯本地文件系统，不做云同步 |
+| 内容 | 官方书城 + 用户导入（PDF/EPUB/DOCX） | 用户自己的 Markdown/文本；PDF/EPUB/DOCX 后续 |
 | 社区 | Agora、群聊、分享、愿望单、工坊 | 不做 |
-| 更新 | 自动更新 | 手动更新 |
-| 语音 | Voice Pack / replay controls | 后置，可先用浏览器 TTS 或暂不实现 |
+| 更新 | 自动更新（上游 5.1.0） | 手动更新 |
+| 语音 | Voice Pack / 录音回放 | 后置，暂不实现 |
 | 用户 | 面向公开用户 | 单用户个人工具 |
 
 ## 工作台结构
@@ -65,14 +66,27 @@ Socratopia-Local/
 
 第二层不是单页原型，而是直接构建桌面应用骨架和核心学习闭环：
 
-- [ ] Electron 安全壳：main / preload / renderer 分层，`contextIsolation: true`，`nodeIntegration: false`
-- [ ] DeepSeek 主进程客户端：API Key 安全保存、模型配置、流式 Chat Completions
-- [ ] 本地文件数据层：profile、world、companions、textbooks、conversations、diary、progress
-- [ ] 9 角色加载：从 reference 目录导入候选角色并映射到本地世界槽位
-- [ ] Prompt 组装器：角色、人设、世界观、教材片段、历史摘要、旁白规则、语言规则
-- [ ] 聊天课堂 UI：角色选择、教材上下文、流式回复、Markdown/KaTeX/代码高亮
-- [ ] 课后产物：summary、flashcards、diary、progress、handoff tail
-- [ ] 搜索与统计：先实现基础对话搜索和学习记录列表，复杂图表后置
+- [x] Electron 安全壳：main / preload / renderer 分层，`contextIsolation: true`，`nodeIntegration: false`
+- [x] DeepSeek 主进程客户端：API Key 安全保存、模型配置、流式 Chat Completions
+- [x] 本地文件数据层：profile、world、companions、textbooks、conversations
+- [x] 9 角色加载：从 reference 目录导入候选角色并映射到本地世界槽位
+- [x] Prompt 组装器：角色、人设、世界观、教材片段、历史窗口、旁白/节奏/语言规则（主进程组装）
+- [x] 聊天课堂 UI：角色选择、教材导入、流式回复、Markdown/KaTeX/代码高亮、重试
+- [x] 偏好设置：模型、思考深度、教学节奏、旁白开关、主题与字号、回车键位
+- [x] 课后产物：summary、flashcards、diary、progress、handoff tail；失败项可单独重试；闪卡可编辑并导出 Markdown/Anki TSV
+- [x] 搜索与统计：全库消息搜索、历史课堂、用量与费用统计（可配置单价）
+- [x] 课堂增强：教材出处引用（`[教材#N]` + 可核对来源面板）、笔记与四色高亮、划词工具条、消息可编辑
+- [x] 本地工具：公式计算器、整课 Markdown 导出、数据备份/恢复、离线帮助与快捷键
+- [x] 多格式教材：Markdown / 纯文本 / PDF（逐页提取）/ EPUB（章节目录）/ Word (.docx)，保留原始文件
+- [x] 学习进度页：按教材进度条（已知总页数时）、完成课堂、累计 token，一键继续学习
+- [x] 自定义角色：创建/编辑/删除，进入角色选择器与课堂 prompt；索引丢失可从 markdown 恢复
+- [x] 打包：electron-builder 配置，`release/win-unpacked` 已做真实启动冒烟（读取 `resources/reference`，初始化 9 个角色）
+
+> 进度快照（2026-09-14）：Milestone 0–4 全部完成；上游 3.x–5.x 功能审查的 Batch 1–3 与 Batch 4 主体已落地，剩余为 PDF/EPUB/DOCX 导入等扩展格式（见审查文档 Batch 4 尾项）。
+> 质量门禁：`npm test` 824 用例、`npm run typecheck`、`npm run build`、`npm run test:security`（38 项）、`npm audit`（0 漏洞）全部通过；`release/win-unpacked` 打包冒烟验证可启动并初始化 9 个角色（asar 23.8MB）。
+>
+> 已完成一轮红队对抗审查（并发/数据完整性/资源耗尽/打包/无障碍），发现并修复 20+ 项问题，详见 `docs/产品设计/上游功能审查与建议.md` 的「红队审查结论」。
+> 接入真实 API Key 前请先看 [docs/产品设计/接入DeepSeek检查清单.md](docs/产品设计/接入DeepSeek检查清单.md)（含连接测试、费用默认值与出错对照表）。
 
 ## 技术栈
 

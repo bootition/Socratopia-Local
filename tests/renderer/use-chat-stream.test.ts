@@ -4,21 +4,23 @@
  * All tests use a fake ChatAPI with captured callbacks and unsubscribe counters.
  * No Electron, React, or DOM dependencies required.
  *
- * The controller and its types are imported from the shared module so they
- * are reachable from node-side typechecking (tsconfig.node.json).
+ * `send()` resolves only when the stream ends, errors, or is cancelled, so
+ * every test that awaits it must first drive the fake stream to completion.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 import {
   createChatStreamController,
   type ChatAPI,
-  type ChatMessage,
+  type ChatRequest,
   type StreamError,
   type StreamUsage,
   type ChatStreamState,
+  type ChatStartResult,
   type CreateChatStreamControllerResult
 } from '../../src/shared/chat-stream-controller'
+import type { MessageSource } from '../../src/shared/schemas/message'
 
 // --------------- Fake ChatAPI builder ---------------
 
@@ -31,6 +33,8 @@ interface FakeChatAPIOptions {
   startError?: Error
   /** If set, cancelStream rejects with this error */
   cancelError?: Error
+  /** Grounding sources returned by startStream */
+  sources?: MessageSource[]
 }
 
 interface CapturedCallbacks {
@@ -42,6 +46,8 @@ interface CapturedCallbacks {
   startCallCount: number
   cancelCallCount: number
   cancelCallSessionIds: string[]
+  /** Most recent request passed to startStream */
+  lastRequest: ChatRequest | null
   // Active subscriber counts (incremented on subscribe, decremented on unsubscribe)
   activeSubscribers: number
 }
@@ -60,6 +66,7 @@ function createFakeChatAPI(
     startCallCount: 0,
     cancelCallCount: 0,
     cancelCallSessionIds: [],
+    lastRequest: null,
     activeSubscribers: 0
   }
 
@@ -75,18 +82,16 @@ function createFakeChatAPI(
   }
 
   const api: ChatAPI = {
-    async startStream(
-      _messages: ChatMessage[],
-      _model?: string
-    ): Promise<string> {
+    async startStream(request: ChatRequest): Promise<ChatStartResult> {
       captured.startCallCount++
+      captured.lastRequest = request
       if (options.startDelay) {
         await new Promise((r) => setTimeout(r, options.startDelay))
       }
       if (options.startError) {
         throw options.startError
       }
-      return sessionId
+      return { sessionId, sources: options.sources ?? [] }
     },
 
     async cancelStream(sid: string): Promise<void> {
@@ -125,15 +130,38 @@ function createFakeChatAPI(
   return { api, captured }
 }
 
+/** Wait until the controller has subscribed to all four event kinds. */
+async function waitForSubscriptions(
+  captured: CapturedCallbacks,
+  sessionId = 'fake-session-001'
+): Promise<void> {
+  await vi.waitFor(() => {
+    expect(captured.endCallbacks.get(sessionId)).toBeDefined()
+  })
+}
+
+/** Drive the fake stream to a normal end. */
+async function endStream(
+  captured: CapturedCallbacks,
+  sessionId = 'fake-session-001',
+  finishReason = 'stop'
+): Promise<void> {
+  await waitForSubscriptions(captured, sessionId)
+  captured.endCallbacks.get(sessionId)!(finishReason)
+}
+
 // --------------- Tests ---------------
 
 describe('createChatStreamController', () => {
   let fake: ReturnType<typeof createFakeChatAPI>
   let controller: CreateChatStreamControllerResult
 
-  const testMessages: ChatMessage[] = [
-    { role: 'user' as const, content: 'Hello, can you help me?' }
-  ]
+  const testRequest: ChatRequest = {
+    companionId: 'comp_alice',
+    textbookId: null,
+    conversationId: null,
+    userMessage: 'Hello, can you help me?'
+  }
 
   beforeEach(() => {
     fake = createFakeChatAPI()
@@ -152,48 +180,88 @@ describe('createChatStreamController', () => {
 
   // --- send() ---
 
-  it('send() calls startStream with messages and default model', async () => {
-    const sendPromise = controller.send(testMessages)
+  it('send() calls startStream with the classroom request', async () => {
+    const sendPromise = controller.send(testRequest)
     expect(controller.state.isStreaming).toBe(true)
-    await sendPromise
+
+    await endStream(fake.captured)
+    const result = await sendPromise
+
     expect(fake.captured.startCallCount).toBe(1)
+    expect(fake.captured.lastRequest).toEqual(testRequest)
     expect(controller.state.sessionId).toBe('fake-session-001')
+    expect(result.error).toBeNull()
   })
 
-  it('send() passes model through to startStream', async () => {
-    // We can't inspect the model arg directly with our fake, but we verify
-    // the controller passes it by checking startStream is called.
-    await controller.send(testMessages, 'deepseek-chat')
+  it('send() passes model and reasoning effort through to startStream', async () => {
+    const sendPromise = controller.send({
+      ...testRequest,
+      model: 'deepseek-v4-flash',
+      reasoningEffort: 'low'
+    })
+    await endStream(fake.captured)
+    await sendPromise
+
     expect(fake.captured.startCallCount).toBe(1)
+    expect(fake.captured.lastRequest!.model).toBe('deepseek-v4-flash')
+    expect(fake.captured.lastRequest!.reasoningEffort).toBe('low')
+  })
+
+  it('send() resolves with grounding sources returned by startStream', async () => {
+    const source = {
+      segmentId: 'seg_2',
+      label: '第一章 · 第 2 段',
+      text: '物体保持静止或匀速直线运动。'
+    }
+    const fakeWithSources = createFakeChatAPI({ sources: [source] })
+    const ctrl = createChatStreamController(fakeWithSources.api)
+
+    const sendPromise = ctrl.send(testRequest)
+    await endStream(fakeWithSources.captured)
+    const result = await sendPromise
+
+    expect(result.sources).toEqual([source])
   })
 
   it('send() subscribes to token, error, end, and usage events', async () => {
-    await controller.send(testMessages)
+    const sendPromise = controller.send(testRequest)
+    await waitForSubscriptions(fake.captured)
+
     expect(fake.captured.tokenCallbacks.size).toBe(1)
     expect(fake.captured.errorCallbacks.size).toBe(1)
     expect(fake.captured.endCallbacks.size).toBe(1)
     expect(fake.captured.usageCallbacks.size).toBe(1)
     expect(fake.captured.activeSubscribers).toBe(4)
+
+    await endStream(fake.captured)
+    await sendPromise
   })
 
   it('send() with startDelay keeps isStreaming true until resolved', async () => {
     const slow = createFakeChatAPI({ startDelay: 10 })
     const ctrl = createChatStreamController(slow.api)
 
-    const sendPromise = ctrl.send(testMessages)
+    const sendPromise = ctrl.send(testRequest)
     // isStreaming is true during the async startStream
     expect(ctrl.state.isStreaming).toBe(true)
+
+    await endStream(slow.captured)
     await sendPromise
-    // After resolution, isStreaming remains true (stream is still active)
-    expect(ctrl.state.isStreaming).toBe(true)
+
+    // After the stream ends it is no longer streaming
+    expect(ctrl.state.isStreaming).toBe(false)
   })
 
   it('send() handles startStream rejection by setting error', async () => {
     const bad = createFakeChatAPI({ startError: new Error('Connection refused') })
     const ctrl = createChatStreamController(bad.api)
 
-    await ctrl.send(testMessages)
+    const result = await ctrl.send(testRequest)
 
+    expect(result.error).toEqual({
+      code: 'STREAM_START_FAILED',
+      message: 'Connection refused'
+    })
     expect(ctrl.state.error).toEqual({
       code: 'STREAM_START_FAILED',
       message: 'Connection refused'
@@ -204,8 +272,9 @@ describe('createChatStreamController', () => {
 
   // --- Token events ---
 
-  it('token callback appends to assistantContent', async () => {
-    await controller.send(testMessages)
+  it('token callback appends to assistantContent and resolves send() with it', async () => {
+    const sendPromise = controller.send(testRequest)
+    await waitForSubscriptions(fake.captured)
 
     const tokenCb = fake.captured.tokenCallbacks.get('fake-session-001')
     expect(tokenCb).toBeDefined()
@@ -218,12 +287,19 @@ describe('createChatStreamController', () => {
 
     tokenCb!('!')
     expect(controller.state.assistantContent).toBe('Hello world!')
+
+    await endStream(fake.captured)
+    const result = await sendPromise
+    expect(result.content).toBe('Hello world!')
+    expect(result.error).toBeNull()
+    expect(result.cancelled).toBe(false)
   })
 
   // --- Usage events ---
 
-  it('usage callback sets usage state', async () => {
-    await controller.send(testMessages)
+  it('usage callback sets usage state and end result carries it', async () => {
+    const sendPromise = controller.send(testRequest)
+    await waitForSubscriptions(fake.captured)
 
     const usageCb = fake.captured.usageCallbacks.get('fake-session-001')
     expect(usageCb).toBeDefined()
@@ -234,29 +310,38 @@ describe('createChatStreamController', () => {
       completionTokens: 50,
       totalTokens: 150
     })
+
+    await endStream(fake.captured)
+    const result = await sendPromise
+    expect(result.usage).toEqual({
+      promptTokens: 100,
+      completionTokens: 50,
+      totalTokens: 150
+    })
   })
 
   // --- End events ---
 
   it('end callback sets isStreaming=false and unsubscribes', async () => {
-    await controller.send(testMessages)
+    const sendPromise = controller.send(testRequest)
+    await waitForSubscriptions(fake.captured)
     expect(controller.state.isStreaming).toBe(true)
 
-    const endCb = fake.captured.endCallbacks.get('fake-session-001')
-    expect(endCb).toBeDefined()
-
-    endCb!('stop')
+    await endStream(fake.captured)
 
     expect(controller.state.isStreaming).toBe(false)
     expect(controller.state.error).toBeNull()
     // After end, all subscribers should be cleaned up
     expect(fake.captured.activeSubscribers).toBe(0)
+
+    await sendPromise
   })
 
   // --- Error events ---
 
-  it('error callback sets error, stops streaming, and unsubscribes', async () => {
-    await controller.send(testMessages)
+  it('error callback sets error, stops streaming, and resolves send() with the error', async () => {
+    const sendPromise = controller.send(testRequest)
+    await waitForSubscriptions(fake.captured)
 
     const errCb = fake.captured.errorCallbacks.get('fake-session-001')
     expect(errCb).toBeDefined()
@@ -269,12 +354,21 @@ describe('createChatStreamController', () => {
     })
     expect(controller.state.isStreaming).toBe(false)
     expect(fake.captured.activeSubscribers).toBe(0)
+
+    const result = await sendPromise
+    expect(result.error).toEqual({
+      code: 'RATE_LIMITED',
+      message: 'Too many requests'
+    })
   })
 
   // --- cancel() ---
 
-  it('cancel() calls cancelStream with sessionId and unsubscribes', async () => {
-    await controller.send(testMessages)
+  it('cancel() calls cancelStream, resolves send() with partial content and unsubscribes', async () => {
+    const sendPromise = controller.send(testRequest)
+    await waitForSubscriptions(fake.captured)
+
+    fake.captured.tokenCallbacks.get('fake-session-001')!('Partial')
 
     await controller.cancel()
 
@@ -282,6 +376,12 @@ describe('createChatStreamController', () => {
     expect(fake.captured.cancelCallSessionIds).toEqual(['fake-session-001'])
     expect(controller.state.isStreaming).toBe(false)
     expect(fake.captured.activeSubscribers).toBe(0)
+
+    const result = await sendPromise
+    expect(result.content).toBe('Partial')
+    expect(result.error).toBeNull()
+    // Cancellation is flagged so callers do not persist a truncated reply.
+    expect(result.cancelled).toBe(true)
   })
 
   it('cancel() with no active stream is a no-op', async () => {
@@ -292,20 +392,15 @@ describe('createChatStreamController', () => {
     expect(controller.state.error).toBeNull()
   })
 
-  it('cancel() with no sessionId is a no-op', async () => {
-    // Mimic state where isStreaming true but sessionId is null (edge case)
-    controller = createChatStreamController(fake.api)
-    await controller.cancel()
-
-    expect(fake.captured.cancelCallCount).toBe(0)
-  })
-
   it('cancel() handles cancelStream rejection gracefully', async () => {
     const badCancel = createFakeChatAPI({ cancelError: new Error('Cancel failed') })
     const ctrl = createChatStreamController(badCancel.api)
 
-    await ctrl.send(testMessages)
+    const sendPromise = ctrl.send(testRequest)
+    await waitForSubscriptions(badCancel.captured)
+
     await ctrl.cancel()
+    await sendPromise
 
     // Should still clean up state even if cancelStream fails
     expect(ctrl.state.isStreaming).toBe(false)
@@ -314,21 +409,31 @@ describe('createChatStreamController', () => {
 
   // --- Sequential send() cancels previous ---
 
-  it('second send() cancels the previous stream before starting new one', async () => {
-    await controller.send(testMessages)
-    expect(controller.state.sessionId).toBe('fake-session-001')
+  it('second send() cancels the previous stream and resolves its promise', async () => {
+    const firstSend = controller.send(testRequest)
+    await waitForSubscriptions(fake.captured)
 
     // Start a second stream
-    await controller.send([{ role: 'user' as const, content: 'Another question' }])
+    const secondSend = controller.send({ ...testRequest, userMessage: 'Another question' })
+
+    // Wait for the second stream to be set up (cancel is async)
+    await vi.waitFor(() => {
+      expect(controller.state.isStreaming).toBe(true)
+    })
 
     // The previous stream should have been cancelled
     expect(fake.captured.cancelCallCount).toBe(1)
     expect(fake.captured.cancelCallSessionIds).toEqual(['fake-session-001'])
     // Content from previous stream is cleared
     expect(controller.state.assistantContent).toBe('')
-    // isStreaming should still be true for the new stream
-    expect(controller.state.isStreaming).toBe(true)
     expect(controller.state.error).toBeNull()
+
+    const firstResult = await firstSend
+    expect(firstResult.error).toBeNull()
+    expect(firstResult.cancelled).toBe(true)
+
+    await endStream(fake.captured)
+    await secondSend
   })
 
   // --- onStateChange callback ---
@@ -339,7 +444,8 @@ describe('createChatStreamController', () => {
       stateChanges.push({ ...state })
     })
 
-    await ctrl.send(testMessages)
+    const sendPromise = ctrl.send(testRequest)
+    await waitForSubscriptions(fake.captured)
 
     // Should have at least 2 changes: initial → streaming, streaming → subscribed
     expect(stateChanges.length).toBeGreaterThanOrEqual(2)
@@ -348,6 +454,9 @@ describe('createChatStreamController', () => {
     const streamingEntry = stateChanges.find((s) => s.isStreaming)
     expect(streamingEntry).toBeDefined()
     expect(streamingEntry!.assistantContent).toBe('')
+
+    await endStream(fake.captured)
+    await sendPromise
   })
 
   it('notifies onStateChange when token arrives', async () => {
@@ -356,7 +465,8 @@ describe('createChatStreamController', () => {
       stateChanges.push({ ...state })
     })
 
-    await ctrl.send(testMessages)
+    const sendPromise = ctrl.send(testRequest)
+    await waitForSubscriptions(fake.captured)
     const changesBefore = stateChanges.length
 
     const tokenCb = fake.captured.tokenCallbacks.get('fake-session-001')
@@ -366,12 +476,16 @@ describe('createChatStreamController', () => {
     expect(stateChanges.length).toBeGreaterThan(changesBefore)
     const lastState = stateChanges[stateChanges.length - 1]
     expect(lastState.assistantContent).toBe('Hi')
+
+    await endStream(fake.captured)
+    await sendPromise
   })
 
   // --- Initializing send() while already streaming ---
 
   it('send() while already streaming cancels and starts fresh', async () => {
-    await controller.send(testMessages)
+    const firstSend = controller.send(testRequest)
+    await waitForSubscriptions(fake.captured)
 
     // Simulate some tokens being received
     const tokenCb = fake.captured.tokenCallbacks.get('fake-session-001')
@@ -379,14 +493,22 @@ describe('createChatStreamController', () => {
     expect(controller.state.assistantContent).toBe('Partial response')
 
     // Send a new message without cancelling first
-    await controller.send([{ role: 'user' as const, content: 'New question' }])
+    const secondSend = controller.send({ ...testRequest, userMessage: 'New question' })
+
+    // Wait for the second stream to be set up (cancel is async)
+    await vi.waitFor(() => {
+      expect(controller.state.isStreaming).toBe(true)
+    })
 
     // Previous should be cancelled
     expect(fake.captured.cancelCallCount).toBe(1)
     // Content should be reset
     expect(controller.state.assistantContent).toBe('')
     // New stream should be active
-    expect(controller.state.isStreaming).toBe(true)
     expect(controller.state.error).toBeNull()
+
+    await firstSend
+    await endStream(fake.captured)
+    await secondSend
   })
 })

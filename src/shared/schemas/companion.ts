@@ -27,6 +27,18 @@ const companionGenderSchema = z.enum([
   CompanionGender.Other
 ])
 
+/** Payload for creating/updating a custom companion (F34). */
+export interface CustomCompanionInput {
+  name: string
+  gender: z.infer<typeof companionGenderSchema>
+  age: number
+  identity: string
+  personalityKeywords: string[]
+  personality: string
+  speakingStyle: string
+  emotionalExpressions: string
+}
+
 export const CompanionSchema = z.object({
   id: z.string().min(1),
   source: companionSourceSchema,

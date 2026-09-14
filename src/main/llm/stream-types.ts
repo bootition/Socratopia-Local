@@ -55,7 +55,11 @@ export type StreamEvent =
  */
 export interface DeepSeekStreamChunk {
   choices?: Array<{
-    delta?: { content?: string }
+    delta?: {
+      content?: string
+      /** Thinking-mode chain of thought; intentionally not shown as reply text. */
+      reasoning_content?: string
+    }
     finish_reason?: string | null
   }>
   usage?: {
@@ -69,12 +73,23 @@ export interface DeepSeekStreamChunk {
 // Streaming adapter contract
 // ---------------------------------------------------------------
 
+/**
+ * Thinking-mode depth for DeepSeek V4 models.
+ * 'off' disables thinking; 'low' | 'high' | 'max' map to reasoning_effort.
+ */
+export type ReasoningEffort = 'off' | 'low' | 'high' | 'max'
+
 export interface DeepSeekStreamParams {
   model: string
   messages: DeepSeekChatMessage[]
   apiKey: string
   /** AbortSignal for true cancellation. The adapter MUST observe this. */
   signal?: AbortSignal
+  /**
+   * Thinking-mode effort. When omitted the model default is used.
+   * The adapter maps this to `thinking` + `reasoning_effort`.
+   */
+  reasoningEffort?: ReasoningEffort
 }
 
 /**

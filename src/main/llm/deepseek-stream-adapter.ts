@@ -20,7 +20,8 @@
 import type {
   DeepSeekStreamAdapter,
   DeepSeekStreamChunk,
-  DeepSeekStreamParams
+  DeepSeekStreamParams,
+  ReasoningEffort
 } from './stream-types'
 import { AppError, mapDeepSeekError } from './errors'
 
@@ -56,20 +57,36 @@ export function createDeepSeekStreamAdapter(options?: {
     streamChat: async function* (
       params: DeepSeekStreamParams
     ): AsyncIterable<DeepSeekStreamChunk> {
-      const response = await fetchImpl(endpoint, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${params.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: params.model,
-          messages: params.messages,
-          stream: true,
-          stream_options: { include_usage: true }
-        }),
-        signal: params.signal
-      })
+      let response: Response
+      try {
+        response = await fetchImpl(endpoint, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${params.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: params.model,
+            messages: params.messages,
+            stream: true,
+            stream_options: { include_usage: true },
+            ...buildThinkingParams(params.reasoningEffort)
+          }),
+          signal: params.signal
+        })
+      } catch {
+        // Never surface raw fetch errors: undici includes the offending
+        // header value (the API key) in its TypeError message.
+        if (params.signal?.aborted) {
+          throw new AppError('ABORTED', 0, '请求已取消', false)
+        }
+        throw new AppError(
+          'NETWORK_ERROR',
+          0,
+          '网络连接失败：无法连接 DeepSeek，请检查网络或代理设置。',
+          true
+        )
+      }
 
       // ---------------------------------------------------------
       // Non-2xx → map to AppError
@@ -99,6 +116,7 @@ export function createDeepSeekStreamAdapter(options?: {
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let sawAnyData = false
 
       try {
         while (true) {
@@ -111,6 +129,15 @@ export function createDeepSeekStreamAdapter(options?: {
             buffer += decoder.decode()
             const outcome = processLines(buffer, true)
             for (const chunk of outcome.chunks) yield chunk
+            sawAnyData = sawAnyData || outcome.sawData
+            if (!sawAnyData) {
+              throw new AppError(
+                'EMPTY_RESPONSE',
+                200,
+                '服务端返回了空的流式响应（可能被网关拦截），请重试。',
+                true
+              )
+            }
             return
           }
 
@@ -126,11 +153,25 @@ export function createDeepSeekStreamAdapter(options?: {
           buffer = outcome.remainder
 
           for (const chunk of outcome.chunks) yield chunk
-          if (outcome.doneReceived) return
+          sawAnyData = sawAnyData || outcome.sawData
+          if (outcome.doneReceived) {
+            // Release the connection as soon as the server is done.
+            try {
+              await reader.cancel()
+            } catch {
+              // Already closed.
+            }
+            return
+          }
         }
       } finally {
-        // Release the reader lock so the underlying connection can
-        // be torn down.
+        // Cancel the body so sockets are not held open when the
+        // consumer stops early (abort / timeout).
+        try {
+          await reader.cancel()
+        } catch {
+          // Already closed.
+        }
         try {
           reader.releaseLock()
         } catch {
@@ -142,6 +183,30 @@ export function createDeepSeekStreamAdapter(options?: {
 }
 
 // ---------------------------------------------------------------
+// Thinking-mode request fields
+// ---------------------------------------------------------------
+
+/**
+ * Map a UI reasoning-effort preference to DeepSeek request fields.
+ *
+ * DeepSeek V4 supports `{"thinking": {"type": "enabled" | "disabled"}}`
+ * plus `reasoning_effort`. Omitting the preference leaves the model
+ * defaults untouched.
+ */
+function buildThinkingParams(
+  effort: ReasoningEffort | undefined
+): Record<string, unknown> {
+  if (effort === undefined) return {}
+  if (effort === 'off') {
+    return { thinking: { type: 'disabled' } }
+  }
+  return {
+    thinking: { type: 'enabled' },
+    reasoning_effort: effort
+  }
+}
+
+// ---------------------------------------------------------------
 // SSE line processing
 // ---------------------------------------------------------------
 
@@ -149,6 +214,8 @@ interface ProcessResult {
   chunks: DeepSeekStreamChunk[]
   doneReceived: boolean
   remainder: string
+  /** True when at least one non-empty `data:` line was seen. */
+  sawData: boolean
 }
 
 /**
@@ -162,8 +229,13 @@ interface ProcessResult {
  * the `remainder` for the next read cycle.
  */
 function processLines(buffer: string, isFinal: boolean): ProcessResult {
-  const lines = buffer.split('\n')
+  // Normalise CRLF: SSE events may use \r\n, and `[DONE]\r` must still
+  // be recognised as the terminator.
+  const lines = buffer.split('\n').map((line) =>
+    line.endsWith('\r') ? line.slice(0, -1) : line
+  )
   const chunks: DeepSeekStreamChunk[] = []
+  let sawData = false
 
   // The last element may be an incomplete line — skip it unless
   // this is the final flush.
@@ -176,20 +248,24 @@ function processLines(buffer: string, isFinal: boolean): ProcessResult {
     if (line === '' || line.startsWith(':')) continue
 
     const trimmed = line.trimStart()
-    if (trimmed.startsWith('data: ')) {
-      const data = trimmed.slice(6)
-      if (data === '[DONE]') {
-        return { chunks, doneReceived: true, remainder: '' }
-      }
-      chunks.push(parseChunk(data))
+    // SSE allows `data:` with or without a single space.
+    if (!trimmed.startsWith('data:')) continue
+
+    const data = trimmed.slice(5).trim()
+    if (data.length === 0) continue
+
+    sawData = true
+    if (data === '[DONE]') {
+      return { chunks, doneReceived: true, remainder: '', sawData }
     }
+    chunks.push(parseChunk(data))
   }
 
   // Compute the incomplete remainder (everything after the last \n).
   const lastIdx = buffer.lastIndexOf('\n')
   const remainder = lastIdx === -1 ? buffer : buffer.slice(lastIdx + 1)
 
-  return { chunks, doneReceived: false, remainder }
+  return { chunks, doneReceived: false, remainder, sawData }
 }
 
 // ---------------------------------------------------------------
@@ -204,11 +280,27 @@ function processLines(buffer: string, isFinal: boolean): ProcessResult {
  * or other sensitive payloads.
  */
 function parseChunk(data: string): DeepSeekStreamChunk {
+  let parsed: unknown
   try {
-    return JSON.parse(data) as DeepSeekStreamChunk
+    parsed = JSON.parse(data)
   } catch {
     throw new Error(
       'Failed to parse streaming response from DeepSeek API'
     )
   }
+
+  // A 200 response may still carry an error object (e.g. gateway).
+  const record = parsed as { error?: { message?: string }; choices?: unknown }
+  if (record.error !== undefined && record.choices === undefined) {
+    throw new AppError(
+      'INVALID_RESPONSE',
+      200,
+      typeof record.error.message === 'string' && record.error.message.length > 0
+        ? `服务端返回错误：${record.error.message}`
+        : '服务端返回了错误响应，请稍后重试。',
+      true
+    )
+  }
+
+  return parsed as DeepSeekStreamChunk
 }

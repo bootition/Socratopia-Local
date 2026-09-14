@@ -92,6 +92,7 @@ function validTextbook(): Textbook {
     title: 'Introduction to Chemistry',
     format: 'markdown',
     sourceFile: '/path/to/chem.md',
+    originalFile: null,
     content: '# Chemistry\n\nAtoms and molecules...',
     progress: { currentPage: 1, totalPages: null },
     createdAt: '2026-07-06T12:00:00.000Z',
@@ -249,8 +250,13 @@ describe('TextbookSchema', () => {
   })
 
   it('rejects a textbook with unsupported format', () => {
-    const result = TextbookSchema.safeParse({ ...validTextbook(), format: 'docx' })
+    const result = TextbookSchema.safeParse({ ...validTextbook(), format: 'ppt' })
     expect(result.success).toBe(false)
+  })
+
+  it('accepts the docx format added for Word imports', () => {
+    const result = TextbookSchema.safeParse({ ...validTextbook(), format: 'docx' })
+    expect(result.success).toBe(true)
   })
 
   it('rejects a textbook with negative currentPage', () => {
@@ -551,12 +557,43 @@ describe('IPC input schemas', () => {
 
   describe('IpcEndClassInputSchema', () => {
     it('accepts valid input', () => {
-      const result = IpcEndClassInputSchema.safeParse({ conversationId: 'conv_001' })
+      const result = IpcEndClassInputSchema.safeParse({
+        conversationId: 'conv_001',
+        companionId: 'comp_alice',
+        textbookId: 'tb_001'
+      })
       expect(result.success).toBe(true)
+    })
+
+    it('defaults textbookId to null and accepts a partial redo list', () => {
+      const result = IpcEndClassInputSchema.safeParse({
+        conversationId: 'conv_001',
+        companionId: 'comp_alice',
+        only: ['flashcards']
+      })
+      expect(result.success).toBe(true)
+      expect(result.data!.textbookId).toBeNull()
     })
 
     it('rejects missing conversationId', () => {
       const result = IpcEndClassInputSchema.safeParse({})
+      expect(result.success).toBe(false)
+    })
+
+    it('rejects an unsafe companionId', () => {
+      const result = IpcEndClassInputSchema.safeParse({
+        conversationId: 'conv_001',
+        companionId: '../escape'
+      })
+      expect(result.success).toBe(false)
+    })
+
+    it('rejects unknown artifact types in only', () => {
+      const result = IpcEndClassInputSchema.safeParse({
+        conversationId: 'conv_001',
+        companionId: 'comp_alice',
+        only: ['not_a_type']
+      })
       expect(result.success).toBe(false)
     })
   })
@@ -589,7 +626,7 @@ describe('IPC input schemas', () => {
 
   describe('IpcGetArtifactInputSchema', () => {
     it('accepts valid input', () => {
-      const result = IpcGetArtifactInputSchema.safeParse({ artifactId: 'art_001' })
+      const result = IpcGetArtifactInputSchema.safeParse({ conversationId: 'conv_001' })
       expect(result.success).toBe(true)
     })
   })
@@ -628,25 +665,32 @@ describe('IPC input schemas', () => {
 
   describe('IpcSearchMessagesInputSchema', () => {
     it('accepts valid input', () => {
+      const result = IpcSearchMessagesInputSchema.safeParse({ query: 'atom' })
+      expect(result.success).toBe(true)
+    })
+
+    it('accepts an explicit limit', () => {
       const result = IpcSearchMessagesInputSchema.safeParse({
-        worldId: 'world_test001',
-        query: 'atom'
+        query: 'atom',
+        limit: 10
       })
       expect(result.success).toBe(true)
     })
 
     it('rejects empty query', () => {
-      const result = IpcSearchMessagesInputSchema.safeParse({
-        worldId: 'world_test001',
-        query: ''
-      })
+      const result = IpcSearchMessagesInputSchema.safeParse({ query: '' })
       expect(result.success).toBe(false)
     })
 
     it('rejects query shorter than 2 characters', () => {
+      const result = IpcSearchMessagesInputSchema.safeParse({ query: 'a' })
+      expect(result.success).toBe(false)
+    })
+
+    it('rejects an out-of-range limit', () => {
       const result = IpcSearchMessagesInputSchema.safeParse({
-        worldId: 'world_test001',
-        query: 'a'
+        query: 'atom',
+        limit: 0
       })
       expect(result.success).toBe(false)
     })

@@ -34,6 +34,14 @@ export interface DeepSeekHttpAdapterOptions {
    * @default globalThis.fetch
    */
   fetchImpl?: typeof fetch
+
+  /**
+   * Request timeout in milliseconds. A hung request resolves as a
+   * network failure instead of padding the UI forever.
+   *
+   * @default 120000
+   */
+  timeoutMs?: number
 }
 
 // ---------------------------------------------------------------
@@ -58,11 +66,15 @@ export function createDeepSeekHttpAdapter(
   }
 
   const fetchImpl = options.fetchImpl ?? globalThis.fetch
+  const timeoutMs = options.timeoutMs ?? 120_000
 
   return {
     async chatCompletion(
       params: DeepSeekApiParams
     ): Promise<DeepSeekApiResult> {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), timeoutMs)
+
       try {
         const response = await fetchImpl(endpoint, {
           method: 'POST',
@@ -73,13 +85,22 @@ export function createDeepSeekHttpAdapter(
           body: JSON.stringify({
             model: params.model,
             messages: params.messages,
-            stream: false
-          })
+            stream: false,
+            ...(params.maxTokens !== undefined
+              ? { max_tokens: params.maxTokens }
+              : {})
+          }),
+          signal: controller.signal
         })
 
         if (response.ok) {
-          const data = await response.json()
-          return { ok: true, data }
+          try {
+            const data = await response.json()
+            return { ok: true, data }
+          } catch {
+            // 2xx with a non-JSON body (gateway page, empty body, ...).
+            return { ok: false, status: response.status, errorCode: 'INVALID_RESPONSE' }
+          }
         }
 
         let body: Record<string, unknown> | undefined
@@ -92,10 +113,13 @@ export function createDeepSeekHttpAdapter(
 
         return { ok: false, status: response.status, body }
       } catch {
-        // Any network-level error (DNS, connection refused, timeout, etc.).
-        // Never attach the raw Error object — it could contain the request
-        // URL which includes the API key in the Authorization header.
-        return { ok: false, status: 0 }
+        // Never attach the raw Error object — undici error messages can
+        // include header values (i.e. the API key).
+        return controller.signal.aborted
+          ? { ok: false, status: 0, errorCode: 'TIMEOUT' as const }
+          : { ok: false, status: 0, errorCode: 'NETWORK_ERROR' as const }
+      } finally {
+        clearTimeout(timer)
       }
     }
   }

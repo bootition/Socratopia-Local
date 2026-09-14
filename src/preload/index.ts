@@ -31,24 +31,49 @@ export interface SettingsAPI {
   setDeepSeekKey: (key: string) => Promise<void>
   /** Remove the stored DeepSeek API key */
   deleteDeepSeekKey: () => Promise<void>
+  /** Read non-secret app preferences (model, pace, narration, theme) */
+  getPreferences: () => Promise<AppPreferences>
+  /** Merge and persist a preferences patch */
+  setPreferences: (patch: AppPreferencesPatch) => Promise<AppPreferences>
+  /**
+   * Test a DeepSeek key (or the stored one) with one tiny request.
+   * Never throws: failures come back as `{ ok: false, message }`.
+   */
+  testDeepSeekKey: (key?: string) => Promise<DeepSeekKeyTestResult>
 }
 
 // ---------------------------------------------------------------
 // Chat API (streaming)
 // ---------------------------------------------------------------
 
+/**
+ * Classroom context sent to the main process. The renderer never
+ * builds a system prompt: main loads the companion, world, textbook
+ * and history from local storage and assembles the messages.
+ */
+export interface ChatStreamRequest {
+  companionId: string
+  textbookId: string | null
+  conversationId: string | null
+  userMessage: string
+  model?: string
+}
+
+/** Result of starting a stream: session id + grounding sources. */
+export interface ChatStartResult {
+  sessionId: string
+  sources: MessageSource[]
+}
+
 export interface ChatAPI {
   /**
-   * Start a streaming chat session.
+   * Start a streaming chat session for one user message.
    *
-   * @param messages  Ordered conversation messages (system/user/assistant).
-   * @param model     Optional model override (defaults to deepseek-v4-pro).
-   * @returns         A unique session ID used to subscribe to events.
+   * @param request  Classroom context + user message.
+   * @returns        Session id (for event subscription) plus the
+   *                 textbook passages used to ground the reply.
    */
-  startStream: (
-    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
-    model?: string
-  ) => Promise<string>
+  startStream: (request: ChatStreamRequest) => Promise<ChatStartResult>
 
   /**
    * Cancel an active streaming session.
@@ -85,6 +110,50 @@ export interface ChatAPI {
    * @returns A function that unsubscribes the callback.
    */
   onUsage: (sessionId: string, callback: (usage: StreamUsageData) => void) => () => void
+}
+
+// ---------------------------------------------------------------
+// Usage stats API (F15)
+// ---------------------------------------------------------------
+
+export interface StatsAPI {
+  /** Aggregated local token usage (and cost basis) across all lessons. */
+  get: () => Promise<UsageSummary>
+}
+
+// ---------------------------------------------------------------
+// Notes API (F05)
+// ---------------------------------------------------------------
+
+export interface NotesAPI {
+  /** List notes, optionally only those of one conversation */
+  list: (conversationId?: string) => Promise<Note[]>
+  /** Create a note or highlight */
+  create: (input: {
+    conversationId: string
+    messageId?: string | null
+    kind?: NoteKind
+    text: string
+    quote?: string
+    color?: NoteColor
+  }) => Promise<Note>
+  /** Edit note text and/or color */
+  update: (input: { noteId: string; text?: string; color?: NoteColor }) => Promise<Note>
+  /** Delete a note */
+  delete: (noteId: string) => Promise<void>
+}
+
+// ---------------------------------------------------------------
+// Archive API (F17)
+// ---------------------------------------------------------------
+
+export interface ArchiveAPI {
+  /** Copy the whole data directory to a user-picked folder. */
+  exportBackup: () => Promise<{ path: string } | null>
+  /** Restore a user-picked backup directory over the current data. */
+  restoreBackup: () => Promise<{ path: string } | null>
+  /** Open the data directory in the OS file manager. */
+  openDataFolder: () => Promise<void>
 }
 
 // ---------------------------------------------------------------
@@ -143,11 +212,19 @@ const socratopia: SocratopiaAPI = {
   settings: {
     hasDeepSeekKey: () => ipcRenderer.invoke('settings:has-deepseek-key'),
     setDeepSeekKey: (key: string) => ipcRenderer.invoke('settings:set-deepseek-key', { key }),
-    deleteDeepSeekKey: () => ipcRenderer.invoke('settings:delete-deepseek-key')
+    deleteDeepSeekKey: () => ipcRenderer.invoke('settings:delete-deepseek-key'),
+    getPreferences: () => ipcRenderer.invoke(SETTINGS_GET_PREFERENCES),
+    setPreferences: (patch: AppPreferencesPatch) =>
+      ipcRenderer.invoke(SETTINGS_SET_PREFERENCES, patch),
+    testDeepSeekKey: (key?: string) =>
+      ipcRenderer.invoke(
+        SETTINGS_TEST_DEEPSEEK_KEY,
+        key === undefined ? {} : { key }
+      )
   },
   chat: {
-    startStream: (messages, model) =>
-      ipcRenderer.invoke(CHAT_STREAM_START, { messages, model }),
+    startStream: (request: ChatStreamRequest) =>
+      ipcRenderer.invoke(CHAT_STREAM_START, request),
 
     cancelStream: (sessionId: string) =>
       ipcRenderer.invoke(CHAT_STREAM_CANCEL, { sessionId }),

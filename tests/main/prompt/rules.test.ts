@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   getSocraticRules,
   getNarrationRules,
+  getNoNarrationRule,
+  getPaceRule,
   getEndClassRule,
+  getInteractionRule,
   getPageNavigationRule,
   getTeachingLanguageRule
 } from '../../../src/main/prompt/rules'
@@ -21,6 +24,12 @@ describe('getSocraticRules', () => {
   it('includes guidance against giving direct answers', () => {
     const rules = getSocraticRules()
     expect(rules).toMatch(/引导|追问|不直接/)
+  })
+
+  it('includes the anti-hallucination first rule', () => {
+    const rules = getSocraticRules()
+    expect(rules).toContain('第一铁律')
+    expect(rules).toMatch(/绝不编造/)
   })
 
   it('mentions step-by-step progression', () => {
@@ -95,6 +104,12 @@ describe('getEndClassRule', () => {
     expect(rule).toMatch(/绝不要|不可|只能/)
   })
 
+  it('allows an in-character wrap-up when the learner says they are done', () => {
+    const rule = getEndClassRule()
+    expect(rule).toMatch(/自然收尾/)
+    expect(rule).toMatch(/提醒他点「下课」/)
+  })
+
   it('matches snapshot', () => {
     expect(getEndClassRule()).toMatchSnapshot()
   })
@@ -156,5 +171,47 @@ describe('getTeachingLanguageRule', () => {
 
   it('zh-TW rule matches snapshot', () => {
     expect(getTeachingLanguageRule('zh-TW')).toMatchSnapshot()
+  })
+})
+
+describe('getPaceRule', () => {
+  it('returns a distinct rule for each pace', () => {
+    const slow = getPaceRule('slow')
+    const normal = getPaceRule('normal')
+    const fast = getPaceRule('fast')
+
+    expect(slow).toContain('慢慢来')
+    expect(normal).toContain('正常')
+    expect(fast).toContain('快速')
+    expect(new Set([slow, normal, fast]).size).toBe(3)
+  })
+
+  it('caches identical pace strings', () => {
+    expect(getPaceRule('slow')).toBe(getPaceRule('slow'))
+  })
+})
+
+describe('getNoNarrationRule', () => {
+  it('instructs the model to drop narration blocks', () => {
+    const rule = getNoNarrationRule()
+    expect(rule).toContain('旁白已关闭')
+    expect(rule).toMatch(/不要输出单星号/)
+  })
+
+  it('does not mandate narration blocks', () => {
+    expect(getNoNarrationRule()).not.toContain('每条消息必须包含至少一段旁白')
+  })
+})
+
+describe('getInteractionRule', () => {
+  it('covers opening etiquette and pause handling', () => {
+    const rule = getInteractionRule()
+    expect(rule).toContain('开场')
+    expect(rule).toContain('暂停')
+    expect(rule).toMatch(/不催促/)
+  })
+
+  it('caches identical strings', () => {
+    expect(getInteractionRule()).toBe(getInteractionRule())
   })
 })

@@ -1,8 +1,10 @@
 {
   "name": "socratopia-local",
   "version": "0.1.0",
-  "description": "Socratopia-Local: AI Socratic learning companion",
+  "description": "Socratopia-Local：本地优先的 AI 苏格拉底式学习伴侣",
   "main": "./out/main/index.js",
+  "author": "bootition <qh491001@gmail.com>",
+  "productName": "Socratopia-Local",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -12,25 +14,98 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test:security": "node scripts/verify-security.mjs",
     "test:unit": "vitest run",
-    "test": "npm run typecheck && npm run test:unit && npm run test:security"
+    "test": "npm run typecheck && npm run test:unit && npm run test:security",
+    "pack:dir": "npm run build && electron-builder --dir --win",
+    "dist": "npm run build && electron-builder --win",
+    "ship": "node scripts/ship.mjs"
   },
   "dependencies": {
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
+    "adm-zip": "^0.6.1",
+    "mammoth": "^1.12.3",
+    "pdfjs-dist": "^6.3.289",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@streamdown/code": "^1.1.1",
+    "@streamdown/math": "^1.0.2",
     "@tailwindcss/postcss": "^4.3.2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/adm-zip": "^0.5.8",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
     "autoprefixer": "^10.4.21",
     "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^3.1.0",
+    "jsdom": "^29.1.1",
+    "katex": "^0.17.0",
     "postcss": "^8.5.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "rehype-harden": "^1.1.8",
+    "streamdown": "^2.5.0",
     "tailwindcss": "^4.1.6",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "vitest": "^4.1.10"
+  },
+  "build": {
+    "appId": "app.socratopia.local",
+    "productName": "Socratopia-Local",
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "!out/**/*.tsbuildinfo",
+      "!out/test-*",
+      "!out/test-*/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "reference",
+        "to": "reference"
+      }
+    ],
+    "npmRebuild": false,
+    "asarUnpack": [
+      "node_modules/pdfjs-dist/**"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Socratopia-Local",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    }
   }
 }

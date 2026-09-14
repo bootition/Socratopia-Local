@@ -7,8 +7,8 @@
  *   true cancellation. cancel() calls controller.abort().
  * - The start() loop races each iterator.next() against the abort
  *   signal so that cancel() immediately breaks out of hanging adapters.
- * - Configurable timeout guard auto-cancels sessions that exceed the
- *   configured duration (default: 5 minutes).
+ * - Configurable inactivity timeout auto-cancels sessions that receive
+ *   no data for the configured duration (default: 5 minutes).
  * - The adapter is injected so tests can provide mock chunk sequences
  *   without any network access or real API key.
  *
@@ -26,6 +26,7 @@ import type {
   StreamUsageEvent,
   DeepSeekStreamParams
 } from './stream-types'
+import { AppError } from './errors'
 
 /** Default error code when the streaming adapter throws a generic error */
 const STREAM_ERROR_CODE = 'STREAM_ERROR'
@@ -33,29 +34,79 @@ const STREAM_ERROR_CODE = 'STREAM_ERROR'
 /** Error code emitted when the stream is cancelled or times out */
 const ABORTED_ERROR_CODE = 'ABORTED'
 
-/** Default session timeout in milliseconds (5 minutes) */
+/** Default inactivity timeout in milliseconds (5 minutes without data) */
+const DEFAULT_MAX_TOTAL_MS = 15 * 60 * 1000
+
+/** Scrub anything key-shaped or control-character-ish out of provider error messages. */
+function scrubControlChars(value: string): string {
+  let result = ''
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0
+    result += code < 32 || code === 127 ? ' ' : char
+  }
+  return result
+}
+
+function scrubSecrets(message: string): string {
+  return scrubControlChars(
+    message
+      .replace(/sk-[A-Za-z0-9_-]{4,}/g, 'sk-***')
+      .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer ***')
+  )
+}
+
+/** Inactivity timeout in milliseconds (5 minutes without data) */
 const DEFAULT_TIMEOUT_MS = 300_000
 
+interface AbortGuard {
+  /** Rejects with an AbortError as soon as the signal is aborted. */
+  promise: Promise<never>
+  /** Removes the underlying abort listener (idempotent). */
+  dispose: () => void
+}
+
 /**
- * Create a promise that rejects with an AbortError when the given
- * AbortSignal is aborted. Used with Promise.race to break out of
- * hanging async iterators on cancellation.
+ * Create a single promise that rejects with an AbortError when the
+ * given AbortSignal is aborted, plus a dispose function that removes
+ * the listener again.
+ *
+ * The guard must be created ONCE per session and reused for every
+ * Promise.race iteration. Creating one per chunk (the previous
+ * implementation) leaked one `abort` listener per streamed chunk,
+ * which grows unbounded for long replies.
  */
-function abortSignalToRejectingPromise(signal: AbortSignal): Promise<never> {
-  return new Promise((_resolve, reject) => {
-    if (signal.aborted) {
+function createAbortGuard(signal: AbortSignal): AbortGuard {
+  let onAbort: (() => void) | null = null
+
+  const promise = new Promise<never>((_resolve, reject) => {
+    const fail = (): void => {
       const err = new Error('The operation was aborted')
       err.name = 'AbortError'
       reject(err)
+    }
+
+    if (signal.aborted) {
+      fail()
       return
     }
-    const onAbort = (): void => {
-      const err = new Error('The operation was aborted')
-      err.name = 'AbortError'
-      reject(err)
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
+
+    onAbort = fail
+    signal.addEventListener('abort', fail, { once: true })
   })
+
+  // Mark the rejection as handled so an abort arriving after the last
+  // race has settled cannot surface as an unhandled rejection.
+  void promise.catch(() => {})
+
+  return {
+    promise,
+    dispose: () => {
+      if (onAbort !== null) {
+        signal.removeEventListener('abort', onAbort)
+        onAbort = null
+      }
+    }
+  }
 }
 
 export class StreamChatSession {
@@ -64,15 +115,19 @@ export class StreamChatSession {
   private controller: AbortController
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null
   private readonly timeoutMs: number
+  private readonly maxTotalMs: number
+  private timedOut = false
 
   constructor(
     private readonly sessionId: string,
     private readonly params: DeepSeekStreamParams,
     private readonly adapter: DeepSeekStreamAdapter,
     private readonly emit: (event: StreamEvent) => void,
-    timeoutMs?: number
+    timeoutMs?: number,
+    maxTotalMs?: number
   ) {
     this.timeoutMs = timeoutMs ?? DEFAULT_TIMEOUT_MS
+    this.maxTotalMs = maxTotalMs ?? DEFAULT_MAX_TOTAL_MS
     this.controller = new AbortController()
 
     // Attach the signal to the params passed to the adapter
@@ -102,24 +157,28 @@ export class StreamChatSession {
 
     this.running = true
     this.finished = false
+    this.timedOut = false
+    const startedAt = Date.now()
 
-    // Arm the timeout guard
-    this.timeoutHandle = setTimeout(() => {
-      this.cancel()
-    }, this.timeoutMs)
+    // Arm the inactivity timeout guard. It is re-armed on every chunk, so
+    // a long but healthy reply (e.g. thinking mode with effort=max) is not
+    // cut off after a fixed total duration.
+    this.armTimeout()
+
+    // Single abort guard reused for every iteration — never per chunk.
+    const abortGuard = createAbortGuard(this.controller.signal)
 
     let finishReason = 'stop'
 
+    let iterator: AsyncIterator<DeepSeekStreamChunk> | undefined
+
     try {
       const stream = this.adapter.streamChat(this.params)
-      const iterator = stream[Symbol.asyncIterator]()
+      iterator = stream[Symbol.asyncIterator]()
 
       // Iterate manually so we can race each next() against abort
       while (true) {
-        const result = await Promise.race([
-          iterator.next(),
-          abortSignalToRejectingPromise(this.controller.signal)
-        ])
+        const result = await Promise.race([iterator.next(), abortGuard.promise])
 
         if (result.done) break
 
@@ -148,28 +207,63 @@ export class StreamChatSession {
             totalTokens: chunk.usage.total_tokens ?? 0
           })
         }
+
+        // Only real progress (content, thinking, usage or a finish
+        // reason) restarts the inactivity window. Empty keep-alive
+        // chunks must not keep a dead stream alive forever.
+        const hasPayload =
+          Boolean(deltaContent) ||
+          Boolean(chunk.choices?.[0]?.delta?.reasoning_content) ||
+          Boolean(chunk.usage) ||
+          chunkFinishReason !== null && chunkFinishReason !== undefined
+        if (hasPayload) this.armTimeout()
+
+        if (Date.now() - startedAt > this.maxTotalMs) {
+          this.timedOut = true
+          this.cancel()
+        }
+      }
+
+      // Normal completion — emit end if not aborted
+      if (!this.controller.signal.aborted) {
+        this.emitEnd(finishReason)
       }
     } catch (err) {
       // Check if this was an abort (from cancel or timeout)
       if (this.controller.signal.aborted || isAbortError(err)) {
-        this.emitError(ABORTED_ERROR_CODE, 'Stream was cancelled')
+        if (this.timedOut) {
+          this.emitError(
+            'TIMEOUT',
+            '等待 DeepSeek 响应超时（长时间没有新内容），已停止本次回复。'
+          )
+        } else {
+          this.emitError(ABORTED_ERROR_CODE, 'Stream was cancelled')
+        }
       } else {
-        const message = err instanceof Error ? err.message : String(err)
-        this.emitError(STREAM_ERROR_CODE, message)
+        // Keep the provider error code (UNAUTHORIZED / INSUFFICIENT_BALANCE
+        // / RATE_LIMITED ...) so the renderer can show an actionable
+        // message instead of a generic stream failure.
+        const code = err instanceof AppError ? err.code : STREAM_ERROR_CODE
+        const message = scrubSecrets(
+          err instanceof Error ? err.message : String(err)
+        )
+        this.emitError(code, message)
       }
       // Error path — skip end event
+    } finally {
+      abortGuard.dispose()
       this.clearTimeout()
+      // Release the adapter's async iterator (and its HTTP body) when
+      // the loop exits early through cancel/timeout.
+      if (this.controller.signal.aborted) {
+        try {
+          await iterator?.return?.(undefined)
+        } catch {
+          // Best effort.
+        }
+      }
       this.running = false
-      return
     }
-
-    // Normal completion — emit end if not aborted
-    if (!this.controller.signal.aborted) {
-      this.emitEnd(finishReason)
-    }
-
-    this.clearTimeout()
-    this.running = false
   }
 
   /**
@@ -191,6 +285,19 @@ export class StreamChatSession {
   // ---------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------
+
+  /**
+   * (Re-)arm the inactivity timeout. Called once at start and after
+   * every received chunk; `clearTimeout` on completion/cancel.
+   */
+  private armTimeout(): void {
+    if (this.timeoutMs <= 0) return
+    this.clearTimeout()
+    this.timeoutHandle = setTimeout(() => {
+      this.timedOut = true
+      this.cancel()
+    }, this.timeoutMs)
+  }
 
   private clearTimeout(): void {
     if (this.timeoutHandle !== null) {

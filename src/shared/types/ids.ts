@@ -55,7 +55,8 @@ export const TextbookFormat = {
   Markdown: 'markdown',
   Text: 'text',
   Pdf: 'pdf',
-  Epub: 'epub'
+  Epub: 'epub',
+  Docx: 'docx'
 } as const
 export type TextbookFormat = (typeof TextbookFormat)[keyof typeof TextbookFormat]
 

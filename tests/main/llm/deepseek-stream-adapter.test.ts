@@ -204,8 +204,46 @@ describe('DeepSeekStreamAdapter — request construction', () => {
     expect(body.stream_options).toEqual({ include_usage: true })
   })
 
-  it('passes params.signal to fetch when provided', async () => {
+  it('enables thinking with the requested effort', async () => {
     const { fetchFn, calls } = mockFetch(200, [
+      sseLines([sseData({ choices: [{ delta: { content: 'Hi' } }] }), 'data: [DONE]'])
+    ])
+
+    const adapter = createDeepSeekStreamAdapter({ fetchImpl: fetchFn })
+    await collectChunks(adapter, streamParams({ reasoningEffort: 'high' }))
+
+    const body = JSON.parse(calls[0].init!.body as string) as Record<string, unknown>
+    expect(body.thinking).toEqual({ type: 'enabled' })
+    expect(body.reasoning_effort).toBe('high')
+  })
+
+  it('disables thinking when effort is off', async () => {
+    const { fetchFn, calls } = mockFetch(200, [
+      sseLines([sseData({ choices: [{ delta: { content: 'Hi' } }] }), 'data: [DONE]'])
+    ])
+
+    const adapter = createDeepSeekStreamAdapter({ fetchImpl: fetchFn })
+    await collectChunks(adapter, streamParams({ reasoningEffort: 'off' }))
+
+    const body = JSON.parse(calls[0].init!.body as string) as Record<string, unknown>
+    expect(body.thinking).toEqual({ type: 'disabled' })
+    expect(body.reasoning_effort).toBeUndefined()
+  })
+
+  it('omits thinking fields when no effort preference is set', async () => {
+    const { fetchFn, calls } = mockFetch(200, [
+      sseLines([sseData({ choices: [{ delta: { content: 'Hi' } }] }), 'data: [DONE]'])
+    ])
+
+    const adapter = createDeepSeekStreamAdapter({ fetchImpl: fetchFn })
+    await collectChunks(adapter, streamParams())
+
+    const body = JSON.parse(calls[0].init!.body as string) as Record<string, unknown>
+    expect(body.thinking).toBeUndefined()
+    expect(body.reasoning_effort).toBeUndefined()
+  })
+
+  it('passes params.signal to fetch when provided', async () => {    const { fetchFn, calls } = mockFetch(200, [
       sseLines([sseData({ choices: [{ delta: { content: 'Hi' } }] }), 'data: [DONE]'])
     ])
 

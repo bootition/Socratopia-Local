@@ -37,14 +37,26 @@ export class SecureKeyStore {
     return join(configDir(this.dataRoot), KEY_FILE_NAME)
   }
 
-  /** Returns true if an encrypted key file exists on disk */
+  /**
+   * Returns true only when a key file exists AND can actually be
+   * decrypted into a non-empty key.
+   *
+   * A file that exists but cannot be decrypted (corrupted file, copied
+   * profile from another machine, changed OS keychain) must not be
+   * reported as "configured": otherwise the UI would claim a key is
+   * present while every chat request fails with "API key not
+   * configured". Returning false sends the user back to the setup gate
+   * where they can re-enter the key.
+   */
   async hasKey(): Promise<boolean> {
     try {
       await access(this.keyFilePath)
-      return true
     } catch {
       return false
     }
+
+    const key = await this.readKey()
+    return key !== null && key.trim().length > 0
   }
 
   /**
@@ -54,6 +66,12 @@ export class SecureKeyStore {
   async setKey(apiKey: string): Promise<void> {
     if (apiKey.trim().length === 0) {
       throw new Error('API key must not be empty')
+    }
+    // Keys are sent as an HTTP header value. Newlines/NUL would make
+    // undici include the whole key in its TypeError message, which could
+    // leak it into the UI — and they are never valid in a DeepSeek key.
+    if (!/^[\x21-\x7e]{1,200}$/.test(apiKey)) {
+      throw new Error('API Key 格式不正确（应为 1-200 个可见字符，不含空格和换行）')
     }
 
     if (!this.safeStorage.isEncryptionAvailable()) {

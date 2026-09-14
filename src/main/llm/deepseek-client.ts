@@ -57,17 +57,42 @@ export class DeepSeekClient {
    */
   async chat(
     messages: DeepSeekChatMessage[],
-    options?: { model?: DeepSeekModel }
+    options?: { model?: DeepSeekModel; maxTokens?: number }
   ): Promise<DeepSeekChatResponse> {
     const model = options?.model ?? this.defaultModel
 
     const result = await this.adapter.chatCompletion({
       model,
       messages,
-      apiKey: this.apiKey
+      apiKey: this.apiKey,
+      ...(options?.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {})
     })
 
     if (!result.ok) {
+      if (result.errorCode === 'TIMEOUT') {
+        throw new AppError(
+          'TIMEOUT',
+          0,
+          '请求超时：DeepSeek 120 秒内没有响应，请稍后重试。',
+          true
+        )
+      }
+      if (result.errorCode === 'NETWORK_ERROR') {
+        throw new AppError(
+          'NETWORK_ERROR',
+          0,
+          '网络连接失败：无法连接 DeepSeek，请检查网络或代理设置。',
+          true
+        )
+      }
+      if (result.errorCode === 'INVALID_RESPONSE') {
+        throw new AppError(
+          'INVALID_RESPONSE',
+          result.status,
+          '服务端返回了无法解析的响应，请稍后重试。',
+          true
+        )
+      }
       throw mapDeepSeekError(result.status, result.body)
     }
 
@@ -97,7 +122,8 @@ function extractChatResponse(data: {
     throw new AppError(
       'EMPTY_RESPONSE',
       0,
-      'DeepSeek returned an empty or malformed response'
+      'DeepSeek 返回了空的响应（可能被安全策略拦截或模型异常），请重试。',
+      true
     )
   }
 

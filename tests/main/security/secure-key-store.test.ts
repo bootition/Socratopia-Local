@@ -80,6 +80,22 @@ describe('hasKey', () => {
     await store.deleteKey()
     expect(await store.hasKey()).toBe(false)
   })
+
+  it('returns false when the key file exists but cannot be decrypted', async () => {
+    const store = createStore()
+    await store.setKey('sk-test-key-corrupt')
+
+    // Overwrite the encrypted blob with garbage — simulates a corrupted
+    // file or a key copied from another machine / keychain.
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(
+      join(configDir(lastDataRoot), 'deepseek-key.enc'),
+      Buffer.from('not a valid encrypted blob')
+    )
+
+    expect(await store.hasKey()).toBe(false)
+    expect(await store.readKey()).toBeNull()
+  })
 })
 
 // ============================================================

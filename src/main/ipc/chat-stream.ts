@@ -12,15 +12,19 @@
  *   the renderer.
  * - The renderer only sees sessionId, token events, error events,
  *   end events, and usage events.
- * - Input validated with Zod: max 200 messages, max 32768 chars per
- *   content, model constrained to known DeepSeek models, system role
- *   restricted to index 0 only.
+ * - Input validated with Zod: safe companion/textbook/conversation
+ *   ids, max 32768 chars per user message, model constrained to known
+ *   DeepSeek models.
+ * - The renderer sends no system prompt: main-process `buildRequest`
+ *   loads local context and assembles the messages.
  */
 
 import { ipcMain, type WebContents } from 'electron'
 import { z } from 'zod'
 import { StreamChatSession } from '../llm/stream-chat'
 import type { DeepSeekStreamParams } from '../llm/stream-types'
+import type { PromptRequestBuilder } from '../prompt/build-request'
+import type { AppPreferences } from '../../shared/schemas/preferences'
 import {
   CHAT_STREAM_START,
   CHAT_STREAM_CANCEL,
@@ -37,33 +41,41 @@ export const DEEPSEEK_MODELS = ['deepseek-v4-pro', 'deepseek-v4-flash'] as const
 // Zod schemas for IPC inputs
 // ---------------------------------------------------------------
 
-export const ChatMessageSchema = z.object({
-  role: z.enum(['system', 'user', 'assistant']),
-  content: z
+/**
+ * Reject ids that could escape their storage directory. The stores
+ * validate again before any I/O (defense in depth), but rejecting at
+ * the IPC boundary gives the renderer a clear error.
+ */
+const safeIdRefinement = (id: string): boolean =>
+  id.length > 0 && !/[\\/:.]/.test(id) && !id.includes('\x00')
+
+export const ChatStreamStartInputSchema = z.strictObject({
+  companionId: z
+    .string()
+    .max(200, 'Companion id is too long')
+    .refine(safeIdRefinement, 'Invalid companion id'),
+  textbookId: z
+    .string()
+    .max(200, 'Textbook id is too long')
+    .refine(safeIdRefinement, 'Invalid textbook id')
+    .nullable()
+    .default(null),
+  conversationId: z
+    .string()
+    .max(200, 'Conversation id is too long')
+    .refine(safeIdRefinement, 'Invalid conversation id')
+    .nullable()
+    .default(null),
+  userMessage: z
     .string()
     .min(1, 'Message content must not be empty')
-    .max(32768, 'Message content exceeds 32768 characters')
+    .max(32768, 'Message content exceeds 32768 characters'),
+  model: z.enum(DEEPSEEK_MODELS).optional(),
+  /** Thinking-mode override; defaults to the stored preference. */
+  reasoningEffort: z.enum(['off', 'low', 'high', 'max']).optional()
 })
 
-export const ChatStreamStartInputSchema = z.object({
-  messages: z
-    .array(ChatMessageSchema)
-    .min(1, 'At least one message is required')
-    .max(200, 'Maximum 200 messages per request'),
-  model: z
-    .enum(DEEPSEEK_MODELS)
-    .optional()
-    .default('deepseek-v4-pro')
-}).refine(
-  (input) => {
-    // System role only allowed as the first message (index 0)
-    const systemIndex = input.messages.findIndex((m) => m.role === 'system')
-    return systemIndex <= 0
-  },
-  {
-    message: 'System role is only allowed as the first message (index 0)'
-  }
-)
+export type ChatStreamStartInput = z.infer<typeof ChatStreamStartInputSchema>
 
 export const ChatStreamCancelInputSchema = z.object({
   sessionId: z.string().min(1)
@@ -87,6 +99,17 @@ export type StreamAdapterFactory = (
  * return a mock key.
  */
 export type ApiKeyReader = () => Promise<string | null>
+
+/** Usage reported after a completed stream, for local accounting. */
+export interface UsageReport {
+  model: string
+  conversationId: string | null
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
+export type UsageReporter = (usage: UsageReport) => void
 
 // ---------------------------------------------------------------
 // Stream event payloads sent to the renderer
@@ -126,11 +149,19 @@ interface UsagePayload {
  *                        Typically wraps `mainWindow.webContents`.
  * @param adapterFactory  Creates a streaming adapter from params.
  * @param readApiKey      Reads the API key (never exposed to renderer).
+ * @param readPreferences Reads non-secret app preferences (model, pace,
+ *                        narration, thinking effort).
+ * @param buildRequest    Builds the trusted prompt messages from the
+ *                        classroom context. Runs in main only, so the
+ *                        renderer cannot inject a system prompt.
  */
 export function registerChatStreamIpc(
   getWebContents: () => WebContents,
   adapterFactory: StreamAdapterFactory,
-  readApiKey: ApiKeyReader
+  readApiKey: ApiKeyReader,
+  readPreferences: () => Promise<AppPreferences>,
+  buildRequest: PromptRequestBuilder,
+  onUsage?: UsageReporter
 ): Map<string, StreamChatSession> {
   const sessions = new Map<string, StreamChatSession>()
 
@@ -140,43 +171,80 @@ export function registerChatStreamIpc(
 
     const apiKey = await readApiKey()
     if (apiKey === null) {
-      throw new Error('API key not configured')
+      throw new Error('尚未配置 DeepSeek API Key，请先在设置里填写。')
     }
+
+    const preferences = await readPreferences()
+
+    // Assemble the system prompt + windowed history in the main process.
+    const request = await buildRequest({ ...parsed, preferences })
 
     const sessionId = generateSessionId()
     const wc = getWebContents()
+    // A dead window must never crash a running stream.
+    const safeSend = (channel: string, payload: unknown): void => {
+      try {
+        if (!wc.isDestroyed()) wc.send(channel, payload)
+      } catch {
+        // Window closed mid-stream — ignore.
+      }
+    }
+    // Usage is reported once per session (the last non-null usage
+    // chunk wins), so duplicate usage chunks cannot double-count.
+    let lastUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | null = null
+    let usageRecorded = false
+    const recordUsageOnce = (): void => {
+      if (lastUsage === null || usageRecorded) return
+      usageRecorded = true
+      onUsage?.({
+        model: request.model,
+        conversationId: parsed.conversationId,
+        promptTokens: lastUsage.promptTokens,
+        completionTokens: lastUsage.completionTokens,
+        totalTokens: lastUsage.totalTokens
+      })
+    }
 
     const session = new StreamChatSession(
       sessionId,
       {
-        messages: parsed.messages,
-        model: parsed.model,
-        apiKey
+        messages: request.messages,
+        model: request.model,
+        apiKey,
+        reasoningEffort: parsed.reasoningEffort ?? preferences.reasoningEffort
       },
       { streamChat: (p) => adapterFactory(p) },
       (event) => {
         switch (event.type) {
           case 'token':
-            wc.send(CHAT_STREAM_EVENT.token, {
+            safeSend(CHAT_STREAM_EVENT.token, {
               sessionId,
               token: event.token
             } satisfies TokenPayload)
             break
           case 'error':
-            wc.send(CHAT_STREAM_EVENT.error, {
+            recordUsageOnce()
+            safeSend(CHAT_STREAM_EVENT.error, {
               sessionId,
               code: event.code,
               message: event.message
             } satisfies ErrorPayload)
             break
           case 'end':
-            wc.send(CHAT_STREAM_EVENT.end, {
+            recordUsageOnce()
+            safeSend(CHAT_STREAM_EVENT.end, {
               sessionId,
               finishReason: event.finishReason
             } satisfies EndPayload)
             break
           case 'usage':
-            wc.send(CHAT_STREAM_EVENT.usage, {
+            // Keep the latest usage; recorded exactly once at end/error.
+            lastUsage = {
+              promptTokens: event.promptTokens,
+              completionTokens: event.completionTokens,
+              totalTokens: event.totalTokens
+            }
+            safeSend(CHAT_STREAM_EVENT.usage, {
               sessionId,
               promptTokens: event.promptTokens,
               completionTokens: event.completionTokens,
@@ -195,7 +263,9 @@ export function registerChatStreamIpc(
       sessions.delete(sessionId)
     })
 
-    return sessionId
+    // Return the grounding sources with the session id so the renderer
+    // can persist them on the assistant message (no event race).
+    return { sessionId, sources: request.sources }
   })
 
   // --- chat:stream-cancel ---

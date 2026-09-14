@@ -341,3 +341,53 @@ describe('createDeepSeekHttpAdapter', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------
+// Request extras: max_tokens + timeout
+// ---------------------------------------------------------------
+
+describe('createDeepSeekHttpAdapter — extras', () => {
+  it('includes max_tokens when provided', async () => {
+    const response = mockResponse(200, stubCompletion)
+    const fetchMock = vi.fn().mockResolvedValue(response)
+    const adapter = createDeepSeekHttpAdapter({
+      fetchImpl: fetchMock as unknown as typeof fetch
+    })
+
+    await adapter.chatCompletion({
+      model: 'deepseek-v4-pro',
+      messages: testMessages,
+      apiKey: testApiKey,
+      maxTokens: 16
+    })
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    const body = JSON.parse(init.body as string) as Record<string, unknown>
+    expect(body.max_tokens).toBe(16)
+  })
+
+  it('resolves as a network failure when the request times out', async () => {
+    const fetchMock = vi.fn().mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const error = new Error('aborted')
+            error.name = 'AbortError'
+            reject(error)
+          })
+        })
+    )
+    const adapter = createDeepSeekHttpAdapter({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      timeoutMs: 20
+    })
+
+    const result = await adapter.chatCompletion({
+      model: 'deepseek-v4-pro',
+      messages: testMessages,
+      apiKey: testApiKey
+    })
+
+    expect(result).toEqual({ ok: false, status: 0 })
+  })
+})

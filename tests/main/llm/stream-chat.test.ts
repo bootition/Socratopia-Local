@@ -11,6 +11,8 @@
  * - Timeout: sessions auto-cancel after configurable timeout.
  */
 import { describe, it, expect, vi } from 'vitest'
+import { getEventListeners } from 'node:events'
+import { getEventListeners } from 'node:events'
 
 import type {
   DeepSeekStreamAdapter,
@@ -234,6 +236,28 @@ describe('StreamChatSession — AbortSignal (true cancellation)', () => {
     expect(adapter.lastParams!.signal!.aborted).toBe(false)
   })
 
+  it('does not accumulate abort listeners across chunks (regression)', async () => {
+    const chunks: DeepSeekStreamChunk[] = Array.from(
+      { length: 50 },
+      (_, i) => tokenChunk(`t${i}`)
+    )
+    chunks.push(finishChunk('stop'))
+
+    const adapter = mockSignalAwareAdapter(chunks)
+    const { events, start } = createSession(adapter)
+
+    await start()
+
+    expect(adapter.lastParams!.signal).toBeDefined()
+    // The single abort guard is disposed when the session ends, so no
+    // listener may remain — the old implementation left 50 here.
+    expect(getEventListeners(adapter.lastParams!.signal!, 'abort')).toHaveLength(0)
+
+    // Sanity: all 50 tokens were still delivered in order.
+    const tokens = events.filter((e) => e.type === 'token')
+    expect(tokens).toHaveLength(50)
+  })
+
   it('cancel() aborts the signal passed to the adapter', async () => {
     let cancelFn!: () => void
 
@@ -385,6 +409,26 @@ describe('StreamChatSession — timeout guard', () => {
 
     const hasEnd = events.some((e) => e.type === 'end')
     expect(hasEnd).toBe(false)
+  })
+
+  it('treats the timeout as inactivity, not a total duration', async () => {
+    // Total runtime (~150ms) exceeds the 60ms timeout, but no single gap does.
+    const adapter: DeepSeekStreamAdapter = {
+      streamChat: async function* () {
+        for (let i = 0; i < 6; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 25))
+          yield tokenChunk(`t${i}`)
+        }
+        yield finishChunk('stop')
+      }
+    }
+
+    const { events, start } = createSession(adapter, 'inactivity-test', 60)
+    await start()
+
+    expect(events.filter((event) => event.type === 'token')).toHaveLength(6)
+    expect(events.some((event) => event.type === 'end')).toBe(true)
+    expect(events.some((event) => event.type === 'error')).toBe(false)
   })
 
   it('does not auto-cancel when stream completes before timeout', async () => {

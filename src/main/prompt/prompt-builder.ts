@@ -21,9 +21,14 @@ import type { DeepSeekChatMessage } from '../llm/types'
 import {
   getSocraticRules,
   getNarrationRules,
+  getNoNarrationRule,
+  getPaceRule,
   getEndClassRule,
+  getInteractionRule,
   getPageNavigationRule,
-  getTeachingLanguageRule
+  getCitationRule,
+  getTeachingLanguageRule,
+  type TeachingPace
 } from './rules'
 import { truncateToBudget, windowMessages } from './token-budget'
 
@@ -44,6 +49,12 @@ export interface BuildSystemPromptParams {
   maxTextbookTokens?: number
   /** Teaching language code (default: 'zh') */
   language?: string
+  /** Teaching pace (default: 'normal') */
+  pace?: TeachingPace
+  /** Whether the companion writes narration blocks (default: true) */
+  narrationEnabled?: boolean
+  /** Include the [教材#N] citation rules (default: true, auto-off without a textbook) */
+  citationEnabled?: boolean
 }
 
 export interface BuildMessagesParams extends BuildSystemPromptParams {
@@ -127,16 +138,31 @@ function buildTextbookSegment(content: string): string {
   ].join('\n')
 }
 
-function buildFormatRulesSegment(language: string): string {
-  return [
-    getNarrationRules(),
+function buildFormatRulesSegment(
+  language: string,
+  pace: TeachingPace,
+  narrationEnabled: boolean,
+  citationEnabled: boolean,
+  hasTextbook: boolean
+): string {
+  const rules = [
+    narrationEnabled ? getNarrationRules() : getNoNarrationRule(),
+    '',
+    getPaceRule(pace),
     '',
     getEndClassRule(),
     '',
-    getPageNavigationRule(),
+    getInteractionRule(),
     '',
-    getTeachingLanguageRule(language)
-  ].join('\n\n')
+    getPageNavigationRule()
+  ]
+
+  if (hasTextbook && citationEnabled) {
+    rules.push('', getCitationRule())
+  }
+
+  rules.push('', getTeachingLanguageRule(language))
+  return rules.join('\n\n')
 }
 
 function genderLabel(gender: string): string {
@@ -164,14 +190,21 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     learnerInfo,
     textbookContent,
     maxTextbookTokens = 2000,
-    language = 'zh'
+    language = 'zh',
+    pace = 'normal',
+    narrationEnabled = true,
+    citationEnabled = true
   } = params
 
   const segments: string[] = [
     getSocraticRules(),
-    buildCharacterSegment(companion),
-    buildWorldSegment(worldContext)
+    buildCharacterSegment(companion)
   ]
+
+  // Optional world context — skipped when story.md is missing/empty
+  if (worldContext.trim().length > 0) {
+    segments.push(buildWorldSegment(worldContext))
+  }
 
   // Optional learner info
   if (learnerInfo) {
@@ -185,7 +218,15 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
   }
 
   // Format and end-class rules (always last)
-  segments.push(buildFormatRulesSegment(language))
+  segments.push(
+    buildFormatRulesSegment(
+      language,
+      pace,
+      narrationEnabled,
+      citationEnabled,
+      textbookContent !== undefined && textbookContent.trim().length > 0
+    )
+  )
 
   return segments.join(SEP)
 }

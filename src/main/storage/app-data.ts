@@ -72,6 +72,15 @@ export function companionDir(
   return join(worldDir(dataRoot, worldId, profileId), 'companions')
 }
 
+/** Notes & highlights JSONL for the default world. */
+export function notesPath(
+  dataRoot: string,
+  worldId: string = DEFAULT_WORLD_ID,
+  profileId: string = DEFAULT_PROFILE_ID
+): string {
+  return join(worldDir(dataRoot, worldId, profileId), 'notes.jsonl')
+}
+
 export function configDir(dataRoot: string): string {
   return join(dataRoot, 'config')
 }

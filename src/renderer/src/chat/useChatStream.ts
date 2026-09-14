@@ -7,10 +7,11 @@
  * factory for backward compatibility.
  */
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createChatStreamController,
   type ChatMessage,
+  type ChatRequest,
   type ChatStreamState,
   type StreamError,
   type StreamUsage,
@@ -21,6 +22,7 @@ import {
 export { createChatStreamController }
 export type {
   ChatMessage,
+  ChatRequest,
   ChatStreamState,
   StreamError,
   StreamUsage,
@@ -40,9 +42,16 @@ export function useChatStream(): CreateChatStreamControllerResult {
     })
   }
 
+  // Leaving the classroom (switching sections) must stop the stream:
+  // otherwise tokens keep being billed in the background.
+  useEffect(() => {
+    return () => {
+      void controllerRef.current?.cancel()
+    }
+  }, [])
+
   const send = useCallback(
-    (messages: ChatMessage[], model?: string) =>
-      controllerRef.current!.send(messages, model),
+    (request: ChatRequest) => controllerRef.current!.send(request),
     []
   )
 
